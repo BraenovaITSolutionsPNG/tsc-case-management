@@ -5,22 +5,21 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { OrganisationLogos } from "@/components/OrganisationLogos";
 import { PageLoader } from "@/components/BrandLoader";
 import {
   AlertCircle,
-  Check,
+  ArrowRight,
+  BookOpen,
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   LogIn,
-  ShieldCheck,
-  User,
 } from "lucide-react";
 import officeIllustration from "@assets/login-bg-img/added-img.webp";
-import { GOLDEN_RULE_PARTS } from "@shared/delegation";
 import Image from "next/image";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -42,26 +41,170 @@ import { Suspense, useEffect, useState } from "react";
  * There is no way to create an account from here. Officers are registered by
  * the platform administrator on the admin screen, which is also where a role is
  * assigned — the manual makes the office that receives an application
- * identifiable (§15), so an account cannot be self-issued at the front door. The
- * setup tab that used to sit on this screen allowed any visitor to name a role,
- * and has been removed.
+ * identifiable (§15), so an account cannot be self-issued at the front door.
  *
- * On presentation: two panels. The illustration runs full-bleed down one side
- * and the form down the other, which is the arrangement a sign-in screen uses
- * when the product is a place rather than a tool — the officer sees the office
- * they are signing in to before they see a field to type in. The artwork shows
- * a provincial office at work: officers round a table, a case file, the workflow
- * a matter travels, and the regional map. It is decorative, so it is hidden from
- * assistive technology rather than described, and it is `priority` because it is
- * the largest thing on the first paint — deferring it would delay the page.
+ * On presentation: the screen is one field of colour with a card laid across
+ * the seam between the two halves. The brand panel runs to a diagonal edge, so
+ * the card sits on the boundary rather than inside either side — the form reads
+ * as the door into the office, and the office is visible on both sides of it.
+ * The panel carries the marks, the wordmark and the promise; everything
+ * actionable is on the card. The rings on the right and the marks in them are
+ * decoration, so they are hidden from assistive technology rather than
+ * described.
  *
- * The card's own detailing follows Material 3 rather than the older WordPress
- * chrome: generously rounded fields, a filled tonal treatment for the error
- * rather than a red outline, and a single accent colour carried through the
- * focus ring, the button and the rules on the illustration side. The two
- * languages agree on the thing that matters, which is that the card is the only
- * part of the page that can be interacted with.
+ * The palette is this screen's own, declared once below and published to the
+ * subtree as custom properties, so every colour on the page — the panel wash,
+ * the accent, the greys, the four rings — is one edit rather than thirty. It is
+ * deliberately not the application's: the rest of the platform is teal, and the
+ * sign-in screen is the one surface a first-time officer ever sees, so it is
+ * given a colour of its own instead of inheriting whatever the theme tokens
+ * happen to be set to. Change PALETTE and the whole screen moves together.
  */
+
+const REMEMBER_KEY = "tsc-remembered-username";
+
+/**
+ * The office this platform belongs to, as it is credited on screen.
+ *
+ * One constant because it appears twice — beside the card on a wide screen, and
+ * under it on a narrow one — and the two are the same statement about the same
+ * body. A sign-in screen that credits the Commission in one layout and the
+ * country in the other is a sign-in screen nobody trusts with a password.
+ */
+const COPYRIGHT = "© PNG - Teachers Service Commission 2026";
+
+/**
+ * Plum, on one hue ramp so nothing on the screen is fighting anything else.
+ *
+ * Four steps of violet carry the whole composition, each with a job:
+ *
+ * - `action` is the only interactive colour. Everything you can press is this
+ *   exact violet, which is what lets a form on a large colour field still be
+ *   scanned in one pass.
+ * - `emphasis` is a step deeper, for the two words in the promise that carry
+ *   the argument. Darker than the button on purpose: a highlight that out-shouts
+ *   the call to action is a highlight in the wrong place.
+ * - `wordmark` is deeper again. It is the one piece of type on the panel big
+ *   enough to carry a colour on its own.
+ * - The panel is the same hue at four per cent, laid as a vertical wash so the
+ *   foot of the screen sits fractionally warmer than its head.
+ *
+ * The greys are violet-biased rather than neutral. A true neutral grey next to
+ * a violet panel reads as a different material — a photograph pasted onto a
+ * poster — so the ink, the muted text and every hairline are the same hue at
+ * low saturation.
+ */
+const PALETTE = {
+  "--login-action": "#7C3AED",
+  "--login-action-hover": "#6D28D9",
+  "--login-action-ring": "rgba(124, 58, 237, 0.28)",
+  "--login-action-ring-soft": "rgba(124, 58, 237, 0.45)",
+  "--login-emphasis": "#6D28D9",
+  "--login-wordmark": "#4C1D95",
+  "--login-panel-top": "#F8F0F6",
+  "--login-panel-bottom": "#E9D5E6",
+  "--login-page": "#FAF8FC",
+  "--login-card": "#FFFFFF",
+  "--login-ink": "#1A1226",
+  "--login-muted": "#6E6480",
+  "--login-faint": "#A29BB0",
+  "--login-line": "#DCD5E4",
+  /** Multiplied over the illustration to pull it onto this hue ramp. */
+  "--login-illustration-wash": "rgba(109, 40, 217, 0.30)",
+  /** Lifted over the artwork so the card stays the focus rather than the room. */
+  "--login-illustration-scrim": "rgba(250, 248, 252, 0.26)",
+  "--login-card-shadow":
+    "0 1px 2px rgba(26, 18, 38, 0.05), 0 28px 64px -30px rgba(76, 29, 149, 0.30)",
+  "--login-fab-surface": "#EDE7F2",
+  "--login-fab-edge": "#F4F0F7",
+  "--login-fab-shadow": "0 10px 30px -12px rgba(76, 29, 149, 0.40)",
+  "--login-note-surface": "#F6F2F9",
+} as const;
+
+function BrandPanel({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={compact ? "text-center" : "text-left"}>
+      {/* The marks, then the wordmark, then a rule, then the promise. That order
+          is deliberate: what this is, who it belongs to, and what it is for,
+          in that order, before a single field is offered. Unframed, because a
+          tile around each crest is a third box in a composition of two. */}
+      <div className={compact ? "flex justify-center" : ""}>
+        <OrganisationLogos
+          framed={false}
+          markClassName="h-14 w-auto"
+          sizes="168px"
+          width={75}
+          height={56}
+        />
+      </div>
+
+      <p
+        className={`mt-4 text-[2.25rem] font-bold leading-none tracking-[-0.03em] text-[var(--login-ink)] ${
+          compact ? "" : "sm:text-[2.5rem]"
+        }`}
+      >
+        tsc<span className="text-[var(--login-wordmark)]">matters</span>
+      </p>
+
+      <div
+        className={`mt-7 h-px bg-[var(--login-line)] ${compact ? "mx-auto max-w-[14rem]" : "max-w-[24rem]"}`}
+        aria-hidden
+      />
+
+      <h1
+        className={`mt-9 text-[2.25rem] font-bold leading-[1.08] tracking-[-0.02em] text-[var(--login-ink)] sm:text-[2.5rem] ${
+          compact ? "mt-7" : ""
+        }`}
+      >
+        Welcome to TSC Matters
+      </h1>
+      <p className="mt-4 text-[1.75rem] font-normal leading-[1.2] tracking-[-0.02em] text-[var(--login-ink)] sm:text-[1.875rem]">
+        Every teacher matter, accounted for.
+        <br />
+        Stay <span className="text-[var(--login-emphasis)]">on track</span>.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The illustration, bleeding off the right edge.
+ *
+ * It replaced a set of concentric rings, which held the right quarter of the
+ * screen without saying anything. The picture says what the platform is: an
+ * office, a boardroom, a case workflow on a wall. It is decoration, so it is
+ * `aria-hidden` and carries no alt text — the words beside it already name the
+ * office, and a description of a stock illustration is noise to a screen reader
+ * and to anyone who can see it.
+ *
+ * Two overlays tie a stock illustration to this palette. The wash multiplies a
+ * violet over the artwork, which keeps every line and shadow in it while
+ * pulling the colour toward the panel; the fade dissolves the left edge into
+ * the page, because a photograph that stops on a straight vertical line reads
+ * as a pasted rectangle rather than as a field the card is sitting in.
+ */
+function Illustration() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 right-0 hidden w-[54%] lg:block"
+    >
+      <Image
+        src={officeIllustration}
+        alt=""
+        fill
+        priority
+        sizes="54vw"
+        // The fade is on the picture, not a panel laid over it: masking the
+        // image dissolves its left edge into the page, where covering it would
+        // simply hide the quarter of the artwork the fade was meant to reveal.
+        className="object-cover object-[42%_center] [mask-image:linear-gradient(to_right,transparent_0%,#000_38%)]"
+      />
+      <div className="absolute inset-0 bg-[var(--login-illustration-wash)] mix-blend-multiply" />
+      <div className="absolute inset-0 bg-[var(--login-illustration-scrim)]" />
+    </div>
+  );
+}
 
 function LoginForm() {
   const router = useRouter();
@@ -85,6 +228,35 @@ function LoginForm() {
   // sight over their shoulder. State lives here rather than on the input so the
   // toggle is a real button, reachable by keyboard and announced.
   const [showPassword, setShowPassword] = useState(false);
+  // On by default, as the Commission's published design shows it. It stores the
+  // username only — never the password — and the write is guarded below, so
+  // ticking it costs nothing an officer cannot see and unticking it clears it.
+  const [remember, setRemember] = useState(true);
+  const [resetNote, setResetNote] = useState(false);
+
+  // The remembered username is read after mount, never during the first render:
+  // the server has no `localStorage`, so rendering from it there would produce
+  // markup that disagrees with the client's and React would discard the lot.
+  useEffect(() => {
+    try {
+      // The switch already starts on, so only the username needs restoring.
+      const saved = localStorage.getItem(REMEMBER_KEY);
+      if (saved) setUsername(saved);
+    } catch {
+      // Storage disabled or full. The field simply starts empty.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      // Unticking clears what was remembered; an empty field writes nothing, so
+      // opening the page never wipes a username before it has been read back.
+      if (!remember) localStorage.removeItem(REMEMBER_KEY);
+      else if (username) localStorage.setItem(REMEMBER_KEY, username);
+    } catch {
+      // A browser that refuses the write still signs in; it just forgets.
+    }
+  }, [remember, username]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -123,150 +295,104 @@ function LoginForm() {
   }
 
   return (
-    /* Two panels rather than a card on a wash. A full-bleed illustration down
-       one side and the form down the other is the arrangement a sign-in screen
-       uses when the product is a place rather than a tool: the officer sees the
-       office they are signing in to, and the form is the only other thing on
-       the page. Below `lg` the illustration becomes a short band above the form
-       and the layout stacks. */
-    <main className="grid min-h-screen lg:grid-cols-[1.15fr_1fr]">
-      {/* Decorative: it carries no information the form does not, so it is
-          hidden from assistive technology rather than described. */}
+    <main
+      className="relative min-h-screen overflow-hidden bg-[var(--login-page)]"
+      // Every colour below is read from these, so the screen is re-skinned by
+      // editing one object rather than by hunting hex values through the JSX.
+      style={PALETTE as React.CSSProperties}
+    >
+      {/* The panel. On a wide screen it is a full-height field of colour cut off
+          by a diagonal, so the card below lands on the seam; below `lg` it
+          becomes a band behind the compact brand block. Purely a backdrop — the
+          marks and the wordmark sit on top of it, so it carries no information
+          of its own and is not announced. */}
       <div
-        className="relative hidden overflow-hidden bg-teal-900 lg:block"
         aria-hidden
-      >
-        <Image
-          src={officeIllustration}
-          alt=""
-          width={1408}
-          height={768}
-          priority
-          sizes="(min-width: 1024px) 55vw, 0px"
-          className="h-full w-full object-cover"
-        />
-        {/* Two washes, not one. The teal ties the artwork to the button colour
-            so the two halves read as one screen, and the vertical wash at the
-            bottom is what makes the caption legible over the busiest part of
-            the illustration without darkening the officers' faces at the top. */}
-        <div className="absolute inset-0 bg-gradient-to-br from-teal-950/70 via-teal-900/25 to-teal-950/85" />
-        <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-teal-950/90 to-transparent" />
+        className="pointer-events-none absolute inset-x-0 top-0 h-[30rem] lg:inset-0 lg:h-auto lg:[clip-path:polygon(0_0,69.1%_0,54.7%_100%,0_100%)]"
+        style={{
+          background:
+            "linear-gradient(to bottom, var(--login-panel-top), var(--login-panel-bottom))",
+        }}
+      />
 
-        <div className="absolute inset-x-0 bottom-0 p-10">
-          <p className="max-w-md text-2xl font-semibold leading-snug tracking-tight text-white">
-            Every teacher matter accounted for, from receipt to recorded
-            outcome.
-          </p>
-          <p className="mt-3 max-w-md text-sm leading-6 text-teal-100/80">
-            Provincial matters administration following the Kenya Teachers
-            Service Commission Provincial Matters Administration Manual.
-          </p>
+      <Illustration />
 
-          {/* The Golden Rule as four marks, on the same footing as the officers
-              it governs. Quoting it here — before there is an account to
-              attribute anything to — is the one piece of advocacy this screen
-              does, and it is the platform's own. */}
-          <ul className="mt-8 grid max-w-lg grid-cols-2 gap-x-8 gap-y-2.5">
-            {GOLDEN_RULE_PARTS.map(part => (
-              <li
-                key={part.key}
-                className="flex items-start gap-2 text-xs leading-5 text-teal-50/90"
-              >
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-300" />
-                {part.text}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      {/* Two columns on a wide screen, one on a narrow one. The brand block
+          leads on a phone — the officer knows what they opened before they are
+          asked to type — and sits beside the card on a desktop.
 
-      <div className="relative flex items-center justify-center overflow-hidden bg-slate-50 px-4 py-10 sm:px-8 sm:py-14">
-        {/* The same artwork, cropped to a band, for the stacked layout. It is
-            given the same decorative treatment rather than a second, different
-            one — the small screen is the same page, not a lesser version. */}
-        <div className="absolute inset-x-0 top-0 h-40 lg:hidden" aria-hidden>
-          <Image
-            src={officeIllustration}
-            alt=""
-            width={1408}
-            height={768}
-            priority
-            sizes="100vw"
-            className="h-full w-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-teal-950/75 to-teal-950/25" />
-        </div>
-
-        <div className="relative w-full max-w-[26rem]">
-          {/* WordPress puts the mark above the card, not inside it. It reads as
-            "this is the thing you are signing in to" before "this is the form",
-            which is the order an officer arriving cold needs. */}
-          <div className="flex flex-col items-center text-center">
-            <div className="rounded-2xl bg-white p-2.5 shadow-sm ring-1 ring-slate-900/[0.06]">
-              <OrganisationLogos
-                markClassName="h-14 w-16"
-                sizes="64px"
-                width={64}
-                height={48}
-              />
+          The row is deliberately not centred. The composition is left-weighted:
+          the panel, the wordmark and the card all sit in the left three quarters
+          and the right quarter is left empty for the rings, so a centred
+          container would push the whole thing away from the edge it is composed
+          against. The brand column is capped rather than fluid for the same
+          reason — a promise set in a column that stretches with the window
+          stops being a line of type and starts being a paragraph. */}
+      <div className="relative flex min-h-screen w-full max-w-[76rem] flex-col px-6 py-12 sm:px-10 lg:flex-row lg:items-center lg:gap-12 lg:px-16 lg:py-16 xl:gap-16">
+        <div className="flex flex-1 flex-col lg:max-w-[34rem] lg:self-stretch">
+          <div className="flex flex-1 flex-col justify-center">
+            <div className="lg:hidden">
+              <BrandPanel compact />
             </div>
-            <h1 className="mt-6 text-[1.375rem] font-semibold tracking-tight text-slate-900">
-              TSC Provincial Matters
-            </h1>
-            <p className="mt-1.5 text-sm leading-6 text-slate-600">
-              Case management for the Kenya Teachers Service Commission
-            </p>
+            <div className="hidden lg:block">
+              <BrandPanel />
+            </div>
           </div>
 
-          <div className="mt-7 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(15,23,42,0.18)] sm:p-7">
-            <div>
-              <h2 className="text-base font-semibold tracking-tight text-slate-900">
+          {/* The copyright sits on the panel rather than in a footer strip, so
+              it stays attached to the office it names when the card changes
+              height — and at the foot of the panel, not floating at the end of
+              whatever the brand block happens to measure. */}
+          <p className="hidden pt-16 text-[0.9375rem] text-[var(--login-muted)] lg:block">
+            {COPYRIGHT}
+          </p>
+        </div>
+
+        {/* The card is set a little below centre, as in the reference: the brand
+            block above it is the taller mass, and a card centred on the
+            viewport would sit level with the middle of the promise rather than
+            with its last line. */}
+        <div className="flex flex-1 items-center lg:w-[30rem] lg:flex-none lg:translate-y-12">
+          <div className="relative w-full">
+            <div className="w-full rounded-xl bg-[var(--login-card)] px-9 pb-9 pt-11 shadow-[var(--login-card-shadow)]">
+              <h2 className="text-[2.5rem] font-bold leading-none tracking-[-0.02em] text-[var(--login-ink)]">
                 Sign in
               </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Access is limited to officers of the Commission.
-              </p>
-            </div>
 
-            {isOAuthConfigured ? (
-              <div className="mt-6">
-                <Button
-                  className="h-11 w-full rounded-lg text-[0.9375rem]"
-                  onClick={() => startLogin(next)}
-                  disabled={busy}
-                >
-                  <LogIn className="mr-2 h-4 w-4" />
-                  Sign in with the Commission account
-                </Button>
+              {isOAuthConfigured ? (
+                <div className="mt-7">
+                  <Button
+                    className="h-11 w-full rounded-lg bg-[var(--login-action)] text-[0.9375rem] font-medium text-white hover:bg-[var(--login-action-hover)]"
+                    onClick={() => startLogin(next)}
+                    disabled={busy}
+                  >
+                    <LogIn className="mr-2 h-4 w-4" />
+                    Sign in with the Commission account
+                  </Button>
 
-                {/* The rule and the label, rather than a gap. Two ways in with
+                  {/* The rule and the label, rather than a gap. Two ways in with
                   nothing between them read as one confusing field. */}
-                <div className="my-6 flex items-center gap-3">
-                  <span className="h-px flex-1 bg-slate-200" />
-                  <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                    or
-                  </span>
-                  <span className="h-px flex-1 bg-slate-200" />
+                  <div className="my-6 flex items-center gap-3">
+                    <span className="h-px flex-1 bg-[var(--login-line)]" />
+                    <span className="text-xs font-medium uppercase tracking-wider text-[var(--login-faint)]">
+                      or
+                    </span>
+                    <span className="h-px flex-1 bg-[var(--login-line)]" />
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            <form
-              onSubmit={submit}
-              className={isOAuthConfigured ? "space-y-5" : "mt-6 space-y-5"}
-            >
-              <div className="space-y-2">
-                <Label
-                  htmlFor="username"
-                  className="text-[0.8125rem] text-slate-700"
-                >
-                  Username
-                </Label>
-                <div className="relative">
-                  <User
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                    aria-hidden
-                  />
+              <form
+                onSubmit={submit}
+                className={isOAuthConfigured ? "space-y-5" : "mt-8 space-y-0"}
+              >
+                <div>
+                  <Label
+                    htmlFor="username"
+                    className="text-[0.9375rem] font-medium text-[var(--login-ink)]"
+                  >
+                    Username
+                  </Label>
                   <Input
                     id="username"
                     name="username"
@@ -278,105 +404,155 @@ function LoginForm() {
                     spellCheck={false}
                     required
                     aria-invalid={error ? true : undefined}
-                    className="h-11 rounded-lg border-slate-300 pl-9 text-[0.9375rem] shadow-none focus-visible:border-teal-600 focus-visible:ring-2 focus-visible:ring-teal-600/25"
+                    placeholder="j.kumul"
+                    className="mt-2.5 h-11 rounded-lg border-[var(--login-line)] bg-transparent px-4 text-base text-[var(--login-ink)] shadow-none placeholder:text-[var(--login-faint)] focus-visible:border-[var(--login-action)] focus-visible:ring-[3px] focus-visible:ring-[var(--login-action-ring)]"
                   />
+                  <p className="mt-2.5 text-[0.9375rem] leading-6 text-[var(--login-muted)]">
+                    The username the platform administrator issued you.
+                  </p>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label
-                  htmlFor="password"
-                  className="text-[0.8125rem] text-slate-700"
-                >
-                  Password
-                </Label>
-                <div className="relative">
-                  <KeyRound
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                    aria-hidden
-                  />
-                  <Input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                    aria-invalid={error ? true : undefined}
-                    className="h-11 rounded-lg border-slate-300 pl-9 pr-11 text-[0.9375rem] shadow-none focus-visible:border-teal-600 focus-visible:ring-2 focus-visible:ring-teal-600/25"
-                  />
+                <div className="mt-3">
+                  <Label
+                    htmlFor="password"
+                    className="text-[0.9375rem] font-medium text-[var(--login-ink)]"
+                  >
+                    Password
+                  </Label>
+                  <div className="relative mt-2.5">
+                    <Input
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
+                      aria-invalid={error ? true : undefined}
+                      placeholder="Enter your password"
+                      className="h-11 rounded-lg border-[var(--login-line)] bg-transparent px-4 pr-12 text-base text-[var(--login-ink)] shadow-none placeholder:text-[var(--login-faint)] focus-visible:border-[var(--login-action)] focus-visible:ring-[3px] focus-visible:ring-[var(--login-action-ring)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(current => !current)}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
+                      aria-pressed={showPassword}
+                      className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[var(--login-faint)] transition-colors hover:bg-[var(--login-note-surface)] hover:text-[var(--login-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--login-action-ring-soft)]"
+                    >
+                      {showPassword ? (
+                        <EyeOff
+                          className="h-[1.125rem] w-[1.125rem]"
+                          aria-hidden
+                        />
+                      ) : (
+                        <Eye
+                          className="h-[1.125rem] w-[1.125rem]"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => setShowPassword(current => !current)}
-                    aria-label={
-                      showPassword ? "Hide password" : "Show password"
-                    }
-                    aria-pressed={showPassword}
-                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/40"
+                    onClick={() => setResetNote(current => !current)}
+                    aria-expanded={resetNote}
+                    className="rounded text-[0.9375rem] text-[var(--login-muted)] underline-offset-4 transition-colors hover:text-[var(--login-action)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--login-action-ring-soft)]"
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" aria-hidden />
-                    ) : (
-                      <Eye className="h-4 w-4" aria-hidden />
-                    )}
+                    Forgot password?
                   </button>
                 </div>
-              </div>
 
-              {/* Material's filled error: a tonal block rather than a red border
+                {/* There is no self-service reset: an officer's account is
+                  created and re-keyed by the platform administrator, so the
+                  link answers the question rather than opening a form that
+                  would be rejected at the far end anyway. */}
+                {resetNote ? (
+                  <p className="mt-3 rounded-lg bg-[var(--login-note-surface)] px-3.5 py-3 text-[0.9375rem] leading-6 text-[var(--login-muted)]">
+                    Passwords are reset by the platform administrator. Ask them
+                    to re-issue yours, then sign in here.
+                  </p>
+                ) : null}
+
+                <div className="mt-8 flex items-center gap-3">
+                  <Switch
+                    id="remember"
+                    checked={remember}
+                    onCheckedChange={setRemember}
+                    className="h-[1.375rem] w-[2.625rem] data-[state=checked]:bg-[var(--login-action)] [&>span]:size-[1.125rem]"
+                  />
+                  <Label
+                    htmlFor="remember"
+                    className="cursor-pointer text-[0.9375rem] font-medium text-[var(--login-muted)]"
+                  >
+                    Remember sign in details
+                  </Label>
+                </div>
+
+                {/* Material's filled error: a tonal block rather than a red border
                 on the field. A rejection is a state of the form, not a
                 decoration on it, and it is announced rather than only coloured. */}
-              {error ? (
-                <div
-                  role="alert"
-                  className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm leading-5 text-red-900"
+                {error ? (
+                  <div
+                    role="alert"
+                    className="mt-5 flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm leading-5 text-red-900"
+                  >
+                    <AlertCircle
+                      className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
+                      aria-hidden
+                    />
+                    <span>{error}</span>
+                  </div>
+                ) : null}
+
+                <Button
+                  type="submit"
+                  className="mt-12 h-11 w-full rounded-lg bg-[var(--login-action)] text-[0.9375rem] font-medium text-white hover:bg-[var(--login-action-hover)] focus-visible:ring-[var(--login-action-ring-soft)]"
+                  disabled={busy}
                 >
-                  <AlertCircle
-                    className="mt-0.5 h-4 w-4 shrink-0 text-red-600"
-                    aria-hidden
-                  />
-                  <span>{error}</span>
-                </div>
-              ) : null}
+                  {/* The arrow follows the words, so the pair reads as a
+                    direction rather than as an icon button with a caption. The
+                    spinner leads, because while it is turning the label is a
+                    status and not an instruction. */}
+                  {busy ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing in…
+                    </>
+                  ) : (
+                    <>
+                      Sign in
+                      <ArrowRight className="ml-2.5 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            </div>
 
-              <Button
-                type="submit"
-                className="h-11 w-full rounded-lg text-[0.9375rem]"
-                disabled={busy}
-              >
-                {busy ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <LogIn className="mr-2 h-4 w-4" />
-                )}
-                {busy ? "Signing in…" : "Sign in"}
-              </Button>
-            </form>
+            {/* The floating round link. It hangs off the card's bottom-right
+                corner, so it reads as belonging to the form without competing
+                with the sign-in button for the same glance. It leads to the
+                officer's guide, which is the one thing an officer can need
+                before they have an account to need anything with. */}
+            <Link
+              href="/guide"
+              aria-label="Read the officer's guide"
+              title="Officer's guide"
+              className="absolute -bottom-[3.8rem] -right-[2.9rem] hidden h-[3.5rem] w-[3.5rem] items-center justify-center rounded-full border border-[var(--login-fab-edge)] bg-[var(--login-fab-surface)] text-[var(--login-action)] shadow-[var(--login-fab-shadow)] transition-transform hover:scale-105 hover:text-[var(--login-action-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--login-action)] focus-visible:ring-offset-2 lg:flex"
+            >
+              <BookOpen className="h-6 w-6" aria-hidden />
+            </Link>
           </div>
-
-          {/* Below the card, at the weight of a footnote. The Golden Rule is the
-            principle the office works to, and an officer meets it before they
-            have an account — but it is context, not an instruction, so it is
-            set quietly rather than made the visual centre of the page. */}
-          <footer className="mt-7 space-y-2.5 text-center">
-            <p className="text-xs leading-5 text-slate-500">
-              Access is logged. Every action taken on a matter is recorded
-              against your name in the accountability trail.
-            </p>
-            <p className="flex items-start justify-center gap-1.5 text-xs leading-5 text-slate-400">
-              <ShieldCheck
-                className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                aria-hidden
-              />
-              <span>
-                No matter is received unregistered, unassigned, or closed
-                without a recorded outcome.
-              </span>
-            </p>
-          </footer>
         </div>
       </div>
+
+      <p className="relative mt-auto px-6 pb-8 text-center text-[0.9375rem] text-[var(--login-muted)] lg:hidden">
+        {COPYRIGHT}
+      </p>
     </main>
   );
 }
