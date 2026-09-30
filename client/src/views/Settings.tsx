@@ -1,0 +1,385 @@
+"use client";
+
+import { CardPanel } from "@/components/DataTable";
+import DashboardLayout from "@/components/DashboardLayout";
+import { AvatarUpload } from "@/components/AvatarUpload";
+import { PageHeader, PageShell } from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { trpc } from "@/lib/trpc";
+import { can, capabilitiesFor, capabilityLabel } from "@shared/access";
+import { ROLE_DESCRIPTIONS, ROLE_LABELS, ROLE_TITLES } from "@shared/roles";
+import { GOLDEN_RULE_PARTS, MATTER_CATEGORIES, NATIONAL_SECTIONS } from "@shared/delegation";
+import { STATUS_LABELS, STATUS_VALUES } from "@shared/statuses";
+import {
+  LogOut,
+  Monitor,
+  Moon,
+  ShieldCheck,
+  Sun,
+  UserCog,
+} from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { toast } from "sonner";
+
+/**
+ * The officer's own account, and what this deployment of the platform is.
+ *
+ * Scope note, because it explains the shape of this screen: there is no route
+ * that lets an officer edit their own name, email or role, and that is
+ * deliberate rather than unfinished. The manual requires every office that handles a
+ * matter to stay identifiable, and a name an officer can quietly change would
+ * break the accountability trail — a matter registered by "J. Otieno" and later
+ * attributed to someone else is not an identifiable trail. Roles are provisioned
+ * by the platform administrator for the same reason.
+ *
+ * What the officer does control is their photograph, their appearance, and their
+ * local sign-in credential where the deployment has one. The credential is
+ * deliberately not self-service either: `setPassword` is an administrator
+ * capability, and a forgotten password is resolved by the platform
+ * administrator, who can see the account is real.
+ */
+
+export default function Settings() {
+  const router = useRouter();
+  const utils = trpc.useUtils();
+  const me = trpc.auth.me.useQuery();
+  const logout = trpc.auth.logout.useMutation({
+    onSuccess: () => {
+      utils.auth.me.setData(undefined, null);
+      router.push("/login");
+    },
+  });
+
+  if (me.isLoading) {
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <Skeleton className="h-64 rounded-lg" />
+        </PageShell>
+      </DashboardLayout>
+    );
+  }
+
+  if (me.error || !me.data) {
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <div className="rounded-lg border border-slate-200 bg-white px-6 py-12 text-center">
+            <UserCog className="mx-auto h-9 w-9 text-slate-300" aria-hidden />
+            <h1 className="mt-3 text-lg font-semibold text-slate-900">
+              You are not signed in
+            </h1>
+            <p className="mt-1.5 text-sm text-slate-600">{me.error?.message}</p>
+            <Button asChild variant="secondary" className="mt-5">
+              <Link href="/login">Sign in</Link>
+            </Button>
+          </div>
+        </PageShell>
+      </DashboardLayout>
+    );
+  }
+
+  const user = me.data;
+  const capabilities = capabilitiesFor(user.role);
+
+  return (
+    <DashboardLayout>
+      <PageShell>
+        <PageHeader
+          eyebrow="Your account"
+          title="Settings"
+          description="Your photograph, your appearance, your sign-in, and what this platform is built on."
+          icon={UserCog}
+        />
+
+        {/* Two columns, not one long one. The page is given the full width of
+            the shell, so the question is what fills it: a single column of
+            cards stretched to 1600px would put a 200-character line of prose
+            across the screen, which is the width nobody reads. Instead the
+            officer's own account sits on the left at a comfortable measure and
+            the reference tables — which are genuinely wide, and are lists of
+            short parallel facts rather than sentences — take the wider right
+            column and set two abreast. Below `xl` this collapses to the one
+            column it always was. */}
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+          <div className="space-y-5">
+            <CardPanel
+              title="Profile"
+              description="Your name and role are provisioned by the platform administrator, so that every matter stays attributable."
+            >
+              <AvatarUpload
+                avatarKey={user.avatarKey}
+                name={user.name}
+                size={64}
+                onChange={() => void utils.auth.me.invalidate()}
+              />
+
+              <dl className="mt-5 space-y-3 text-sm">
+                <Row label="Name" value={user.name ?? "—"} />
+                <Row label="Email" value={user.email ?? "—"} />
+                <Row
+                  label="Sign-in name"
+                  value={
+                    user.username ? (
+                      <span className="font-mono text-xs">{user.username}</span>
+                    ) : (
+                      <span className="text-slate-500">
+                        Set by your identity provider
+                      </span>
+                    )
+                  }
+                />
+                <Row label="Role" value={ROLE_LABELS[user.role]} />
+                <Row label="Title" value={ROLE_TITLES[user.role]} />
+                <Row
+                  label="Last signed in"
+                  value={formatDateTime(user.lastSignedIn)}
+                />
+              </dl>
+
+              <p className="mt-4 rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                {ROLE_DESCRIPTIONS[user.role]}
+              </p>
+            </CardPanel>
+
+            <AppearancePanel />
+
+            <CardPanel
+              title="Sign-in credential"
+              description="Where this deployment signs officers in."
+            >
+              {user.username ? (
+                <>
+                  <p className="text-sm text-slate-700">
+                    You sign in with the name{" "}
+                    <span className="font-mono text-xs font-medium">
+                      {user.username}
+                    </span>{" "}
+                    and a password.
+                  </p>
+                  {can(user.role, "platform:users") ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      As a platform administrator you can set or replace any
+                      officer&apos;s credential on the admin screen.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      A forgotten password is reset by the platform
+                      administrator — ask them rather than creating a second
+                      account.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-slate-700">
+                  This account signs in through the Commission&apos;s identity
+                  provider. There is no local password to change.
+                </p>
+              )}
+
+              <Button
+                variant="outline"
+                className="mt-4"
+                disabled={logout.isPending}
+                onClick={() => logout.mutate()}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign out
+              </Button>
+            </CardPanel>
+
+            <CardPanel
+              title="What your role can do"
+              description="The capabilities the server enforces on your account, not just the options this screen shows."
+            >
+              {capabilities.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No capabilities are held by this role.
+                </p>
+              ) : (
+                // Two abreast from `sm`: a platform administrator holds fifteen
+                // of these, and a single column of fifteen is a wall to scroll
+                // past to reach the reference below it.
+                <ul className="grid gap-1.5 sm:grid-cols-2">
+                  {capabilities.map(capability => (
+                    <li
+                      key={capability}
+                      className="flex items-start gap-2 text-sm text-slate-700"
+                    >
+                      <ShieldCheck
+                        className="mt-0.5 h-4 w-4 shrink-0 text-teal-600"
+                        aria-hidden
+                      />
+                      {capabilityLabel(capability)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {capabilities.length ? (
+                <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                  Hiding an option is a courtesy, not a security control: each
+                  one is also enforced on the route, so calling the API directly
+                  cannot bypass it.
+                </p>
+              ) : null}
+            </CardPanel>
+          </div>
+
+          <CardPanel
+            title="Reference"
+            description="The manual this platform implements, held in shared/ as the single source of truth."
+          >
+            <ReferenceList />
+          </CardPanel>
+        </div>
+      </PageShell>
+    </DashboardLayout>
+  );
+}
+
+/**
+ * Appearance. The theme is the one genuinely self-service setting in the
+ * platform, and it is deliberately a local preference: it belongs to the
+ * browser the officer is sitting at, not to the account, so two officers
+ * sharing a machine in a provincial office are not fighting over it.
+ */
+function AppearancePanel() {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  const choose = (next: "light" | "dark") => {
+    setTheme(next);
+    // The document class is what the stylesheet keys off, so it is set here
+    // rather than through a provider, keeping the choice in one place.
+    document.documentElement.classList.toggle("dark", next === "dark");
+    try {
+      localStorage.setItem("theme", next);
+    } catch {
+      // A browser with storage disabled still gets the theme for this session.
+    }
+  };
+
+  return (
+    <CardPanel title="Appearance" description="Applies to this browser only.">
+      <div className="flex gap-2">
+        <Button
+          variant={theme === "light" ? "secondary" : "outline"}
+          size="sm"
+          onClick={() => choose("light")}
+        >
+          <Sun className="mr-2 h-4 w-4" />
+          Light
+        </Button>
+        <Button
+          variant={theme === "dark" ? "secondary" : "outline"}
+          size="sm"
+          onClick={() => choose("dark")}
+        >
+          <Moon className="mr-2 h-4 w-4" />
+          Dark
+        </Button>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        <Monitor className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+        Held in this browser rather than on your account, so a shared machine in
+        a provincial office does not carry one officer&apos;s preference into
+        another&apos;s session.
+      </p>
+    </CardPanel>
+  );
+}
+
+/** The reference tables, read from the same modules the server enforces. */
+function ReferenceList() {
+  return (
+    // Two columns of sections, not one long list. Each entry is a short fact
+    // beside a code or a label, so they sit comfortably side by side; stacked in
+    // a single column they ran the length of a screen to say four things.
+    <div className="grid gap-x-8 gap-y-6 text-sm sm:grid-cols-2">
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+          Status codes
+        </h3>
+        <ul className="mt-2 space-y-1">
+          {STATUS_VALUES.map(status => (
+            <li
+              key={status}
+              className="flex gap-2 text-xs text-slate-700"
+            >
+              <span className="w-8 shrink-0 font-mono font-medium text-slate-500">
+                {status}
+              </span>
+              {STATUS_LABELS[status]}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+          Classes of matter
+        </h3>
+        <ul className="mt-2 space-y-1">
+          {MATTER_CATEGORIES.map(category => (
+            <li key={category} className="text-xs text-slate-700">
+              {category}
+            </li>
+          ))}
+        </ul>
+
+        <h3 className="mt-6 text-xs font-semibold uppercase tracking-wider text-slate-600">
+          The Golden Rule
+        </h3>
+        <ul className="mt-2 space-y-1">
+          {GOLDEN_RULE_PARTS.map(part => (
+            <li key={part.key} className="text-xs text-slate-700">
+              {part.text}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="sm:col-span-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+          National Sections
+        </h3>
+        {/* Full width across both columns: each entry pairs a section with the
+            authority it holds, and that pair reads as one line only when it is
+            not wrapped in half the space. */}
+        <ul className="mt-2 grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
+          {NATIONAL_SECTIONS.map(section => (
+            <li key={section.key} className="text-xs text-slate-700">
+              <span className="font-medium text-slate-800">{section.label}</span>{" "}
+              — {section.authority}
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Utilities
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-xs text-slate-500">{label}</dt>
+      <dd className="min-w-0 text-right text-sm text-slate-800">{value}</dd>
+    </div>
+  );
+}
+
+function formatDateTime(value?: Date | string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
