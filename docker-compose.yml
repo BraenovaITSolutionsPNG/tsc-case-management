@@ -1,4 +1,6 @@
-# MariaDB 12 for the TSC Case Management platform.
+# MariaDB 12 for local development. The deployed platform runs on the provider for
+# MySQL (see the Database section of .env.example); this service is what
+# DATABASE_URL points at on a development machine, and nothing more.
 #
 #   docker compose up -d          start the database
 #   docker compose down           stop it (data is kept in the named volume)

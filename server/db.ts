@@ -23,15 +23,22 @@ import {
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { databaseCredentials, describeTls } from "./_core/databaseConnection";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _flavourChecked = false;
 
 /**
- * The platform targets MariaDB 12. Because MariaDB speaks the MySQL wire
- * protocol there is nothing in the config that distinguishes it from MySQL, so
- * log the server we actually reached once per process. This is how a mismatch
- * gets noticed rather than assumed.
+ * The server we actually reached, once per process, and how the connection to it
+ * is secured.
+ *
+ * The platform speaks the MySQL wire protocol, and both MariaDB and MySQL 8 —
+ * which is what a hosted the provider service runs — answer to it, so nothing in the
+ * config distinguishes them. That is precisely why it is worth saying out loud
+ * which one answered: a schema written for MariaDB and applied to MySQL 8 (or
+ * the reverse) is a mistake that otherwise surfaces as an unexplained error
+ * much later. The TLS line is the same idea from the other end, because
+ * "encrypted" and "not encrypted" are otherwise the same silence.
  */
 async function logServerFlavour(db: NonNullable<ReturnType<typeof drizzle>>) {
   if (_flavourChecked) return;
@@ -43,7 +50,9 @@ async function logServerFlavour(db: NonNullable<ReturnType<typeof drizzle>>) {
       Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
     const version = (rows as { version?: string }[])?.[0]?.version ?? "unknown";
     const flavour = /mariadb/i.test(version) ? "MariaDB" : "MySQL-compatible";
-    console.log(`[Database] Connected to ${flavour} ${version}`);
+    console.log(
+      `[Database] Connected to ${flavour} ${version} — ${describeTls()}`
+    );
   } catch (error) {
     console.warn("[Database] Could not determine server version:", error);
   }
@@ -69,7 +78,9 @@ export async function getDb() {
   }
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // The credentials as an object rather than as the URL itself, because the
+      // TLS block a hosted database requires has nowhere to live in a URL.
+      _db = drizzle({ connection: databaseCredentials() });
       await logServerFlavour(_db);
     } catch (error) {
       console.error("[Database] Failed to connect:", error);
