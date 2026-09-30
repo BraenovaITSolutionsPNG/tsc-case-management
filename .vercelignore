@@ -1,0 +1,33 @@
+# What is uploaded to Vercel.
+#
+# Vercel reads this file INSTEAD of .gitignore when it exists, so the exclusions
+# that matter are restated here explicitly rather than inherited. The rule is
+# simple: a file that must never leave this machine is named in this file.
+#
+# `.env` holds DATABASE_URL (with the database password), JWT_SECRET (the cookie
+# signing key) and the storage credentials. It is here on the first line of the
+# list for that reason — not as a trailing detail.
+
+# --- Secrets. Never uploaded. ---
+.env
+.env.*
+!.env.example
+
+# --- Local state ---
+.local-storage/
+# The dev server's build directory. Distinct from .next because `pnpm dev` writes
+# to .next-dev; uploading it would ship a half-built dev bundle to the builder.
+.next-dev/
+
+# --- Build output and dependencies. The builder produces its own. ---
+.next/
+node_modules/
+
+# --- Local tooling and logs ---
+*.log
+.dev.vars
+.turbo/
+coverage/
+
+# --- Documentation sources kept in the repo but not needed to build ---
+# tsc-doc.pdf is the manual the platform implements, kept for provenance.
