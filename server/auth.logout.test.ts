@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { handleLogin } from "./_core/localAuthHandlers";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
@@ -92,5 +93,28 @@ describe("oauth next-path handling", () => {
     // protocol-relative. This is the case a naive check misses.
     expect(safeNextPath("/\\evil.example.com")).toBe("/");
     expect(safeNextPath("/cases\n//evil.example.com")).toBe("/");
+  });
+});
+
+describe("a deployment with no database", () => {
+  it("does not blame the officer's password", async () => {
+    // With no DATABASE_URL there are no accounts to match against, so the
+    // lookup returns nothing and the handler used to answer "that username and
+    // password do not match an account" — true of the credentials, and useless
+    // about a deployment that cannot reach its database at all.
+    const previous = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    try {
+      const result = await handleLogin(
+        { username: "anyone", password: "morobe2026officer" },
+        "127.0.0.1",
+        true
+      );
+      expect(result.status).toBe(503);
+      expect(result.body.error).toMatch(/no database configured/i);
+      expect(result.body.error).not.toMatch(/do not match/i);
+    } finally {
+      if (previous !== undefined) process.env.DATABASE_URL = previous;
+    }
   });
 });

@@ -49,17 +49,39 @@ async function logServerFlavour(db: NonNullable<ReturnType<typeof drizzle>>) {
   }
 }
 
+/**
+ * Said once, loudly, and about the thing that is actually wrong.
+ *
+ * `getDb` used to return null in silence when DATABASE_URL was unset, and every
+ * caller treats null as "nothing found" — so a deployment with no database
+ * answered every sign-in attempt with "that username and password do not match
+ * an account", and answered it for as long as the deployment existed. The
+ * message was true of the credentials and useless about the cause.
+ */
+let reportedMissingUrl = false;
+
 export async function getDb() {
+  if (!_db && !process.env.DATABASE_URL && !reportedMissingUrl) {
+    reportedMissingUrl = true;
+    console.error(
+      "[Database] DATABASE_URL is not set, so there is no database to read or write. Every screen that reads a matter and every sign-in will fail until it is. Set it on the deployment — not only locally."
+    );
+  }
   if (!_db && process.env.DATABASE_URL) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
       await logServerFlavour(_db);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.error("[Database] Failed to connect:", error);
       _db = null;
     }
   }
   return _db;
+}
+
+/** Whether this process can reach a database at all. */
+export function isDatabaseConfigured() {
+  return Boolean(process.env.DATABASE_URL);
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
