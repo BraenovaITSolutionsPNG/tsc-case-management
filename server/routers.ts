@@ -7,6 +7,10 @@ import {
   REGISTER_PAGE_SIZE,
 } from "@shared/pagination";
 import {
+  CASE_BRIEF_CONDITIONAL_KEYS,
+  CASE_BRIEF_FIELDS,
+  CASE_BRIEF_MIN_LENGTH,
+  briefNeedsDecision,
   CASEFILE_MAX_BYTES,
   CASEFILE_MIME_TYPES,
   DOCUMENT_CLASSES,
@@ -14,12 +18,22 @@ import {
   ESCALATION_LEVELS,
   MAX_ESCALATION_LEVEL,
   REFERRAL_CRITERIA,
+  caseBriefFieldError,
   checkGoldenRule,
   escalationLabel,
   isLegalReferral,
   type CasefileMimeType,
 } from "@shared/delegation";
 import { can, refusalFor, type Capability } from "@shared/access";
+import {
+  dateField,
+  emailAddress,
+  optionalText,
+  pageBounds,
+  recordId,
+  requiredText,
+  searchTerm,
+} from "@shared/validation";
 import { matterTypeValues, provinceValues } from "@shared/matters";
 import { ROLE_VALUES, type Role } from "@shared/roles";
 import { STATUS_VALUES } from "@shared/statuses";
@@ -82,6 +96,58 @@ const REFERRAL_CRITERION_KEYS = REFERRAL_CRITERIA.map(item => item.key) as [
   ...string[],
 ];
 const roleEnum = z.enum(ROLE_VALUES);
+
+/**
+ * One section of a §12C case brief.
+ *
+ * The message is the same sentence the brief form shows against the offending
+ * box, so a rejection and a client-side warning read identically. Without it
+ * the officer gets the schema's default — "Too small: expected string to have
+ * >=4 characters" — which names neither the section nor what to do about it.
+ *
+ * The message is chosen per failure rather than fixed, because "this section is
+ * required" and "write at least four characters" are different instructions for
+ * two different mistakes. A single fixed message would say the second to an
+ * officer who had left the box empty, and the form's own check would say the
+ * first to the same officer — the same mistake worded two ways depending on
+ * which side happened to catch it.
+ */
+function briefSection(key: string) {
+  const field = CASE_BRIEF_FIELDS.find(item => item.key === key) ?? {
+    key,
+    label: "This section",
+  };
+  return z
+    .string()
+    .trim()
+    .min(CASE_BRIEF_MIN_LENGTH, {
+      // `error` rather than the deprecated `message`, because only `error` takes
+      // a function — and the function is the point: it is what lets the message
+      // depend on whether the officer left the box empty or wrote too little.
+      error: issue =>
+        caseBriefFieldError(
+          field,
+          typeof issue.input === "string" ? issue.input : ""
+        ) ?? `${field.label} is required.`,
+    });
+}
+
+/**
+ * A brief section that only has to be filled in when the matter is being put to
+ * the Director for a decision.
+ *
+ * §12C asks a brief to state what the Director needs to decide and what the
+ * province proposes. §12B's flag is what says whether there is such a thing to
+ * decide, so the requirement follows the flag: a matter the province is simply
+ * pursuing is not made to carry two invented sections, and the moment it is
+ * flagged the same two sections become mandatory again.
+ *
+ * The key is not used here — the length floor for these two is applied in the
+ * refinement below, once the flag in the same payload is known.
+ */
+function conditionalBriefSection() {
+  return z.string().trim();
+}
 
 /**
  * Profile image constraints. An avatar is rendered at most 96px square, so the
@@ -341,7 +407,9 @@ export const appRouter = router({
         z.object({
           /** Base64 payload, without a data: URL prefix. */
           data: z.string(),
-          mimeType: z.enum(AVATAR_TYPES),
+          mimeType: z.enum(AVATAR_TYPES, {
+            error: "Choose a PNG, JPEG or WebP image.",
+          }),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -411,16 +479,15 @@ export const appRouter = router({
       .input(
         z
           .object({
-            search: z.string().optional(),
+            search: searchTerm(),
             status: statusEnum.optional(),
             matterType: matterTypeEnum.optional(),
-            province: z.string().optional(),
+            province: z.string().trim().max(80).optional(),
             overdueOnly: z.boolean().optional(),
             // Paging. Bounded at both ends: the ceiling is not a guess about how
             // large a page may be, it is what stops one request asking for the
             // province and putting back what paging was introduced to avoid.
-            limit: z.number().int().min(1).max(100).optional(),
-            offset: z.number().int().min(0).optional(),
+            ...pageBounds(REGISTER_PAGE_SIZE),
           })
           .optional()
       )
@@ -438,21 +505,34 @@ export const appRouter = router({
      */
     summary: protectedProcedure.query(() => summariseCases()),
     getById: protectedProcedure
-      .input(z.object({ id: z.number().int().positive() }))
+      .input(z.object({ id: recordId() }))
       .query(({ input }) => getCaseById(input.id)),
     create: requireCapability("matter:register")
       .input(
         z.object({
-          dateReceived: z.coerce.date(),
+          dateReceived: dateField(),
           province: provinceEnum,
-          teacherName: z.string().min(2),
-          employeeReference: z.string().optional(),
+          teacherName: requiredText("Teacher's name", { min: 2, max: 160 }),
+          employeeReference: optionalText("Employee reference", {
+            max: 60,
+          }).optional(),
           matterType: matterTypeEnum,
-          matterSummary: z.string().min(8),
-          assignedOfficerName: z.string().optional(),
-          actionRequired: z.string().optional(),
-          dueDate: z.coerce.date().optional(),
-          priority: z.enum(["normal", "urgent"]).default("normal"),
+          matterSummary: requiredText("Summary of the matter", {
+            min: 8,
+            max: 4000,
+          }),
+          assignedOfficerName: optionalText("Assigned officer", {
+            max: 160,
+          }).optional(),
+          actionRequired: optionalText("Action required", {
+            max: 2000,
+          }).optional(),
+          dueDate: dateField().optional(),
+          priority: z
+            .enum(["normal", "urgent"], {
+              error: "Choose normal or urgent.",
+            })
+            .default("normal"),
         })
       )
       .mutation(async ({ ctx, input }) =>
@@ -473,19 +553,27 @@ export const appRouter = router({
     update: requireCapability("matter:update")
       .input(
         z.object({
-          id: z.number().int().positive(),
+          id: recordId(),
           status: statusEnum.optional(),
           // Nullable, not merely optional: `undefined` means "leave this field
           // alone" and is stripped before the write, so an officer who clears a
           // field in the interface would be told the matter was updated while
           // nothing changed. `null` is the explicit instruction to clear it.
-          assignedOfficerName: z.string().nullable().optional(),
-          sectionReferred: z.string().nullable().optional(),
-          actionRequired: z.string().nullable().optional(),
-          dueDate: z.coerce.date().nullable().optional(),
-          outcome: z.string().nullable().optional(),
-          dateClosed: z.coerce.date().nullable().optional(),
-          priority: z.enum(["normal", "urgent"]).optional(),
+          assignedOfficerName: optionalText("Assigned officer", { max: 160 })
+            .nullable()
+            .optional(),
+          sectionReferred: optionalText("Section referred to", { max: 160 })
+            .nullable()
+            .optional(),
+          actionRequired: optionalText("Action required", { max: 2000 })
+            .nullable()
+            .optional(),
+          dueDate: dateField().nullable().optional(),
+          outcome: optionalText("Outcome", { max: 2000 }).nullable().optional(),
+          dateClosed: dateField().nullable().optional(),
+          priority: z
+            .enum(["normal", "urgent"], { error: "Choose normal or urgent." })
+            .optional(),
           escalationLevel: z
             .number()
             .int()
@@ -493,9 +581,13 @@ export const appRouter = router({
             .max(MAX_ESCALATION_LEVEL)
             .optional(),
           decisionRequired: z.boolean().optional(),
-          processedByName: z.string().optional(),
-          decidedByName: z.string().optional(),
-          communicatedByName: z.string().optional(),
+          processedByName: optionalText("Processed by", {
+            max: 160,
+          }).optional(),
+          decidedByName: optionalText("Decided by", { max: 160 }).optional(),
+          communicatedByName: optionalText("Communicated by", {
+            max: 160,
+          }).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -615,16 +707,41 @@ export const appRouter = router({
     /** §12C case brief prepared before a matter is presented to the Director. */
     saveBrief: requireCapability("brief:write")
       .input(
-        z.object({
-          id: z.number().int().positive(),
-          issue: z.string().min(4),
-          background: z.string().min(4),
-          actionTaken: z.string().min(4),
-          currentPosition: z.string().min(4),
-          issueRequiringDecision: z.string().min(4),
-          recommendation: z.string().min(4),
-          decisionRequired: z.boolean().default(false),
-        })
+        z
+          .object({
+            id: recordId(),
+            // Every section carries its own message, and the length floor comes
+            // from `shared/` rather than being written out again. A bare
+            // `z.string().min(4)` reaches the officer as a JSON array of schema
+            // internals with no indication of which box on the form to look at;
+            // these read as sentences naming the section.
+            issue: briefSection("issue"),
+            background: briefSection("background"),
+            actionTaken: briefSection("actionTaken"),
+            currentPosition: briefSection("currentPosition"),
+            // Unconstrained here and checked below, because whether these two
+            // are required at all depends on the flag in the same payload.
+            issueRequiringDecision: conditionalBriefSection(),
+            recommendation: conditionalBriefSection(),
+            decisionRequired: z.boolean().default(false),
+          })
+          // Only the flag is checked here, because only the flag arrives in the
+          // payload. The other half of `briefNeedsDecision` — a matter sitting at
+          // DEC — depends on the stored status and is enforced in the resolver,
+          // which reads it rather than believing a value the client sent.
+          .superRefine((brief, ctx) => {
+            if (!brief.decisionRequired) return;
+            for (const key of CASE_BRIEF_CONDITIONAL_KEYS) {
+              const field = CASE_BRIEF_FIELDS.find(item => item.key === key);
+              if (!field) continue;
+              const message = caseBriefFieldError(
+                field,
+                brief[key as "issueRequiringDecision" | "recommendation"]
+              );
+              if (message)
+                ctx.addIssue({ code: "custom", path: [key], message });
+            }
+          })
       )
       .mutation(async ({ ctx, input }) => {
         const { id, ...brief } = input;
@@ -637,13 +754,46 @@ export const appRouter = router({
             message: refusalFor(ctx.user.role, "matter:flag"),
           });
         }
+        // A matter at DEC is asking the Director for a decision whether or not
+        // the flag was set — the status says so — and the Director's queue is
+        // built from `decisionRequired || status === "DEC"`. Enforcing the same
+        // pair here is what stops a matter appearing in that queue with a brief
+        // that never says what is being decided. The status is read from the
+        // database rather than taken from the request: a client that declared its
+        // own status could opt out of the check by lying about it.
+        const before = await getCaseById(id);
+        if (!before) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Matter not found.",
+          });
+        }
+        if (briefNeedsDecision(brief.decisionRequired, before.status)) {
+          const missing = CASE_BRIEF_CONDITIONAL_KEYS.map(key =>
+            caseBriefFieldError(
+              CASE_BRIEF_FIELDS.find(item => item.key === key)!,
+              brief[key as "issueRequiringDecision" | "recommendation"]
+            )
+          ).filter((message): message is string => Boolean(message));
+          if (missing.length) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `This matter is awaiting a decision from the Director, so the brief must say what is being decided. ${missing.join(" ")}`,
+            });
+          }
+        }
+
         const result = await updateCase(id, {
           briefIssue: brief.issue,
           briefBackground: brief.background,
           briefActionTaken: brief.actionTaken,
           briefCurrentPosition: brief.currentPosition,
-          briefIssueRequiringDecision: brief.issueRequiringDecision,
-          briefRecommendation: brief.recommendation,
+          // Null rather than an empty string when the matter is not flagged: the
+          // columns are nullable, and "not applicable" is a different statement
+          // from "written, and it said nothing". The Director's queue already
+          // reads this with a fallback to the assigned action.
+          briefIssueRequiringDecision: brief.issueRequiringDecision || null,
+          briefRecommendation: brief.recommendation || null,
           briefPreparedByName: nameOf(ctx.user),
           briefPreparedAt: new Date(),
           decisionRequired: brief.decisionRequired,
@@ -669,9 +819,9 @@ export const appRouter = router({
     flagForDirector: requireCapability("matter:flag")
       .input(
         z.object({
-          id: z.number().int().positive(),
+          id: recordId(),
           required: z.boolean(),
-          note: z.string().max(500).optional(),
+          note: optionalText("Note", { max: 500 }).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -706,14 +856,18 @@ export const appRouter = router({
     addDocument: requireCapability("file:write")
       .input(
         z.object({
-          caseId: z.number().int().positive(),
-          documentClass: z.enum(DOCUMENT_CLASS_KEYS),
-          title: z.string().min(2).max(200),
-          note: z.string().max(2000).optional(),
+          caseId: recordId(),
+          documentClass: z.enum(DOCUMENT_CLASS_KEYS, {
+            error: "Choose which kind of document this is.",
+          }),
+          title: requiredText("Title", { min: 2, max: 200 }),
+          note: optionalText("Note", { max: 2000 }).optional(),
           /** Base64 file body, without a data: URL prefix. */
           data: z.string().optional(),
-          mimeType: z.enum(DOCUMENT_TYPES).optional(),
-          fileName: z.string().max(200).optional(),
+          mimeType: z
+            .enum(DOCUMENT_TYPES, { error: "That file type is not accepted." })
+            .optional(),
+          fileName: optionalText("File name", { max: 200 }).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -826,8 +980,8 @@ export const appRouter = router({
     removeDocument: requireCapability("file:write")
       .input(
         z.object({
-          id: z.number().int().positive(),
-          caseId: z.number().int().positive(),
+          id: recordId("document"),
+          caseId: recordId(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -861,9 +1015,12 @@ export const appRouter = router({
     recordReferralResponse: requireCapability("referral:followUp")
       .input(
         z.object({
-          referralId: z.number().int().positive(),
-          responseSummary: z.string().min(4),
-          responseReceivedAt: z.coerce.date().optional(),
+          referralId: recordId("referral"),
+          responseSummary: requiredText("Response summary", {
+            min: 4,
+            max: 2000,
+          }),
+          responseReceivedAt: dateField().optional(),
         })
       )
       .mutation(({ ctx, input }) =>
@@ -876,9 +1033,9 @@ export const appRouter = router({
     addEvent: requireCapability("matter:update")
       .input(
         z.object({
-          caseId: z.number().int().positive(),
-          eventType: z.string().min(2),
-          note: z.string().min(2),
+          caseId: recordId(),
+          eventType: requiredText("Event type", { min: 2, max: 60 }),
+          note: requiredText("Note", { min: 2, max: 2000 }),
         })
       )
       .mutation(({ ctx, input }) =>
@@ -891,20 +1048,34 @@ export const appRouter = router({
     refer: requireCapability("matter:refer")
       .input(
         z.object({
-          caseId: z.number().int().positive(),
-          destination: z.string().min(2),
-          reason: z.string().min(8),
+          caseId: recordId(),
+          destination: requiredText("National Section", { min: 2, max: 160 }),
+          reason: requiredText("Reason for referral", { min: 8, max: 2000 }),
           // §5 the officer records which referral triggers applied. Validated in
           // the handler rather than by zod so the message stays readable.
-          criteria: z.array(z.enum(REFERRAL_CRITERION_KEYS)).optional(),
-          responseDueDate: z.coerce.date().nullable().optional(),
+          criteria: z
+            .array(z.enum(REFERRAL_CRITERION_KEYS), {
+              error: "One of the referral criteria is not recognised.",
+            })
+            .optional(),
+          responseDueDate: dateField().nullable().optional(),
           // §6 the Director must be notified before a legal matter leaves the province.
-          directorNotifiedName: z.string().max(160).optional(),
+          directorNotifiedName: optionalText("Director notified", {
+            max: 160,
+          }).optional(),
           // §8 required statement set for Industrial and General referrals.
-          statementClaim: z.string().max(2000).optional(),
-          statementVerified: z.string().max(2000).optional(),
-          statementUnresolved: z.string().max(2000).optional(),
-          statementAdviceRequired: z.string().max(2000).optional(),
+          statementClaim: optionalText("What the teacher is claiming", {
+            max: 2000,
+          }).optional(),
+          statementVerified: optionalText("What the province verified", {
+            max: 2000,
+          }).optional(),
+          statementUnresolved: optionalText("What remains unresolved", {
+            max: 2000,
+          }).optional(),
+          statementAdviceRequired: optionalText("Advice required", {
+            max: 2000,
+          }).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -969,9 +1140,9 @@ export const appRouter = router({
     commissionerUpdate: requireCapability("matter:decide")
       .input(
         z.object({
-          id: z.number().int().positive(),
-          decidedByName: z.string().min(2),
-          outcome: z.string().min(8),
+          id: recordId(),
+          decidedByName: requiredText("Decided by", { min: 2, max: 160 }),
+          outcome: requiredText("Outcome", { min: 8, max: 4000 }),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -1018,7 +1189,10 @@ export const appRouter = router({
           .object({
             month: z
               .string()
-              .regex(/^\d{4}-\d{2}$/)
+              .trim()
+              .regex(/^\d{4}-\d{2}$/, {
+                error: "Choose a month, in the form 2026-01.",
+              })
               .optional(),
           })
           .optional()
@@ -1035,7 +1209,10 @@ export const appRouter = router({
           .object({
             quarter: z
               .string()
-              .regex(/^\d{4}-Q[1-4]$/)
+              .trim()
+              .regex(/^\d{4}-Q[1-4]$/, {
+                error: "Choose a quarter, in the form 2026-Q1.",
+              })
               .optional(),
           })
           .optional()
@@ -1072,8 +1249,8 @@ export const appRouter = router({
       create: requireCapability("platform:users")
         .input(
           z.object({
-            name: z.string().min(2).max(160),
-            email: z.string().email().max(320).optional(),
+            name: requiredText("Full name", { min: 2, max: 160 }),
+            email: emailAddress().optional(),
             // The name typed at sign-in. Required whenever a password is set,
             // because a credential nobody can name is not a credential.
             username: z
@@ -1089,7 +1266,10 @@ export const appRouter = router({
             // Optional local credential, for environments with no identity
             // provider. Unused in production, where accounts sign in through the
             // provider and this field is simply never sent.
-            password: z.string().min(10).max(200).optional(),
+            password: requiredText("Password", {
+              min: 10,
+              max: 200,
+            }).optional(),
           })
         )
         .mutation(async ({ input }) => {
@@ -1122,7 +1302,12 @@ export const appRouter = router({
           });
         }),
       setRole: requireCapability("platform:users")
-        .input(z.object({ id: z.number().int().positive(), role: roleEnum }))
+        .input(
+          z.object({
+            id: recordId("officer"),
+            role: roleEnum,
+          })
+        )
         .mutation(async ({ ctx, input }) => {
           if (input.id === ctx.user.id && input.role !== "super_admin") {
             throw new TRPCError({
@@ -1157,15 +1342,18 @@ export const appRouter = router({
       setUsername: requireCapability("platform:users")
         .input(
           z.object({
-            id: z.number().int().positive(),
+            id: recordId("officer"),
+            // A sign-in name, not a display name: the pattern is the rule the
+            // login form and the admin screen both rely on, so the message says
+            // which characters are allowed rather than only that it is invalid.
             username: z
               .string()
-              .min(3)
-              .max(64)
-              .regex(
-                /^[a-z0-9._-]+$/i,
-                "Letters, numbers, dot, underscore and hyphen only."
-              ),
+              .trim()
+              .min(3, { error: "Username must be at least 3 characters." })
+              .max(64, { error: "Username must be 64 characters or fewer." })
+              .regex(/^[a-z0-9._-]+$/i, {
+                error: "Use letters, numbers, dot, underscore and hyphen only.",
+              }),
           })
         )
         .mutation(async ({ input }) => {
@@ -1191,7 +1379,7 @@ export const appRouter = router({
        *     the account instead: it keeps the trail and closes the sign-in.
        */
       delete: requireCapability("platform:users")
-        .input(z.object({ id: z.number().int().positive() }))
+        .input(z.object({ id: recordId() }))
         .mutation(async ({ ctx, input }) => {
           // Checked before anything is read, so the guard does not depend on a
           // database round trip and cannot be reordered past the lookups.
@@ -1246,8 +1434,8 @@ export const appRouter = router({
       setPassword: requireCapability("platform:users")
         .input(
           z.object({
-            id: z.number().int().positive(),
-            password: z.string().min(10).max(200),
+            id: recordId("officer"),
+            password: requiredText("Password", { min: 10, max: 200 }),
           })
         )
         .mutation(async ({ input }) => {
@@ -1264,9 +1452,7 @@ export const appRouter = router({
           return { ok: true };
         }),
       setActive: requireCapability("platform:users")
-        .input(
-          z.object({ id: z.number().int().positive(), isActive: z.boolean() })
-        )
+        .input(z.object({ id: recordId("officer"), isActive: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           if (input.id === ctx.user.id && !input.isActive) {
             throw new TRPCError({
@@ -1314,10 +1500,15 @@ export const appRouter = router({
         .input(
           z
             .object({
-              search: z.string().optional(),
-              eventType: z.string().optional(),
-              limit: z.number().int().min(1).max(500).optional(),
-              offset: z.number().int().min(0).optional(),
+              search: searchTerm(),
+              eventType: z
+                .string()
+                .trim()
+                .max(60, {
+                  error: "Event type must be 60 characters or fewer.",
+                })
+                .optional(),
+              ...pageBounds(OVERSIGHT_PAGE_SIZE),
             })
             .optional()
         )
@@ -1342,13 +1533,12 @@ export const appRouter = router({
         .input(
           z
             .object({
-              search: z.string().optional(),
+              search: searchTerm(),
               status: statusEnum.optional(),
               matterType: matterTypeEnum.optional(),
-              province: z.string().optional(),
+              province: z.string().trim().max(80).optional(),
               overdueOnly: z.boolean().optional(),
-              limit: z.number().int().min(1).max(100).optional(),
-              offset: z.number().int().min(0).optional(),
+              ...pageBounds(OVERSIGHT_PAGE_SIZE),
             })
             .optional()
         )
@@ -1361,8 +1551,11 @@ export const appRouter = router({
       reassign: requireCapability("platform:oversight")
         .input(
           z.object({
-            id: z.number().int().positive(),
-            assignedOfficerName: z.string().min(2).max(160),
+            id: recordId(),
+            assignedOfficerName: requiredText("Assigned officer", {
+              min: 2,
+              max: 160,
+            }),
           })
         )
         .mutation(async ({ ctx, input }) => {
@@ -1385,9 +1578,9 @@ export const appRouter = router({
       setStatus: requireCapability("platform:oversight")
         .input(
           z.object({
-            id: z.number().int().positive(),
+            id: recordId(),
             status: statusEnum,
-            note: z.string().min(3).max(500),
+            note: requiredText("Note", { min: 3, max: 500 }),
           })
         )
         .mutation(async ({ ctx, input }) => {

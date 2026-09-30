@@ -10,6 +10,9 @@ import {
   isLegalReferral,
   sectionForCategory,
 } from "../shared/delegation";
+import { appRouter } from "./routers";
+import type { TrpcContext } from "./_core/context";
+import type { Role } from "../shared/roles";
 import {
   CLOSED_STATUSES,
   STATUS_LABELS,
@@ -19,6 +22,33 @@ import {
   isOverdue,
 } from "../shared/statuses";
 
+/**
+ * The manual's rules, and the API that enforces them.
+ *
+ * Most of this file is arithmetic over the lists in `shared/`. The §12C block
+ * differs: it calls the router, because the assertion is about the message a
+ * rejected brief produces rather than about a number. The input is validated
+ * before the resolver runs, so no database is involved.
+ */
+function contextFor(role: Role): TrpcContext {
+  const now = new Date();
+  return {
+    user: {
+      id: 42,
+      openId: `test-${role}`,
+      email: `${role}@example.com`,
+      name: `${role} tester`,
+      loginMethod: "test",
+      role,
+      createdAt: now,
+      updatedAt: now,
+      lastSignedIn: now,
+    },
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: () => undefined } as TrpcContext["res"],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // §10 status codes
 // ---------------------------------------------------------------------------
@@ -26,7 +56,17 @@ import {
 describe("§10 standard status codes", () => {
   it("carries the eleven codes the manual lists", () => {
     expect([...STATUS_VALUES]).toEqual([
-      "NEW", "VER", "INV", "REF", "ADV", "DEC", "LEG", "ACT", "RES", "CLS", "ESC",
+      "NEW",
+      "VER",
+      "INV",
+      "REF",
+      "ADV",
+      "DEC",
+      "LEG",
+      "ACT",
+      "RES",
+      "CLS",
+      "ESC",
     ]);
   });
 
@@ -78,7 +118,7 @@ describe("§17 Golden Rule", () => {
       dateClosed: new Date(),
       communicatedByName: "J. Kumul",
     });
-    expect(violations.map((v) => v.part)).toContain("recorded_outcome");
+    expect(violations.map(v => v.part)).toContain("recorded_outcome");
   });
 
   it("blocks closing without a closure date", () => {
@@ -89,7 +129,7 @@ describe("§17 Golden Rule", () => {
       dateClosed: null,
       communicatedByName: "J. Kumul",
     });
-    expect(violations.map((v) => v.part)).toContain("recorded_outcome");
+    expect(violations.map(v => v.part)).toContain("recorded_outcome");
   });
 
   it("blocks closing without recording who communicated the outcome", () => {
@@ -100,7 +140,7 @@ describe("§17 Golden Rule", () => {
       dateClosed: new Date(),
       communicatedByName: null,
     });
-    expect(violations.some((v) => /communicated/i.test(v.message))).toBe(true);
+    expect(violations.some(v => /communicated/i.test(v.message))).toBe(true);
   });
 
   it("permits a fully documented closure", () => {
@@ -111,12 +151,14 @@ describe("§17 Golden Rule", () => {
         outcome: "Appointment confirmed by the Appointments Section",
         dateClosed: new Date(),
         communicatedByName: "J. Kumul",
-      }),
+      })
     ).toEqual([]);
   });
 
   it("does not demand an action for a matter that is still New", () => {
-    expect(checkGoldenRule({ ...base, nextStatus: "NEW", actionRequired: "" })).toEqual([]);
+    expect(
+      checkGoldenRule({ ...base, nextStatus: "NEW", actionRequired: "" })
+    ).toEqual([]);
   });
 
   it("blocks a referred matter left without a follow-up date", () => {
@@ -126,7 +168,7 @@ describe("§17 Golden Rule", () => {
       awaitingResponse: true,
       referralResponseDueDate: null,
     });
-    expect(violations.map((v) => v.part)).toContain("referral_followup");
+    expect(violations.map(v => v.part)).toContain("referral_followup");
   });
 
   it("accepts a referred matter that has a response due date", () => {
@@ -136,7 +178,7 @@ describe("§17 Golden Rule", () => {
         nextStatus: "REF",
         awaitingResponse: true,
         referralResponseDueDate: new Date(),
-      }),
+      })
     ).toEqual([]);
   });
 });
@@ -148,13 +190,15 @@ describe("§17 Golden Rule", () => {
 describe("§3 National Section authority", () => {
   it("routes each matter category to its primary technical authority", () => {
     expect(sectionForCategory("Appointment")).toBe("Appointments");
-    expect(sectionForCategory("Industrial & General")).toBe("Industrial and General");
+    expect(sectionForCategory("Industrial & General")).toBe(
+      "Industrial and General"
+    );
     expect(sectionForCategory("Legal")).toBe("Legal Section");
   });
 
   it("lists the six authorities from the manual table", () => {
     expect(NATIONAL_SECTIONS).toHaveLength(6);
-    expect(NATIONAL_SECTIONS.map((s) => s.key)).toContain("legal");
+    expect(NATIONAL_SECTIONS.map(s => s.key)).toContain("legal");
   });
 });
 
@@ -169,7 +213,9 @@ describe("§5 referral criteria", () => {
   it("routes a matter with any legal trigger to the legal path", () => {
     const legal = LEGAL_CRITERIA_KEYS[0];
     expect(isLegalReferral([legal])).toBe(true);
-    expect(isLegalReferral(["outside_delegation", "commission_decision"])).toBe(false);
+    expect(isLegalReferral(["outside_delegation", "commission_decision"])).toBe(
+      false
+    );
   });
 });
 
@@ -180,12 +226,14 @@ describe("§5 referral criteria", () => {
 describe("§11 case file", () => {
   it("carries the eleven document classes the manual lists", () => {
     expect(DOCUMENT_CLASSES).toHaveLength(11);
-    expect(DOCUMENT_CLASSES.map((d) => d.key)).toContain("original_application");
-    expect(DOCUMENT_CLASSES.map((d) => d.key)).toContain("closure_record");
+    expect(DOCUMENT_CLASSES.map(d => d.key)).toContain("original_application");
+    expect(DOCUMENT_CLASSES.map(d => d.key)).toContain("closure_record");
   });
 
   it("marks the closure record and decisions as required before closure", () => {
-    const required = DOCUMENT_CLASSES.filter((d) => d.requiredForClosure).map((d) => d.key);
+    const required = DOCUMENT_CLASSES.filter(d => d.requiredForClosure).map(
+      d => d.key
+    );
     expect(required).toContain("original_application");
     expect(required).toContain("decisions");
     expect(required).toContain("communication_to_teacher");
@@ -193,17 +241,150 @@ describe("§11 case file", () => {
   });
 });
 
+describe("§12C case brief", () => {
+  it("refuses a brief with a section left empty", async () => {
+    // The input is rejected before the resolver runs, so this needs no database:
+    // what is being asserted is the sentence the officer is shown, which is the
+    // whole point of the section messages.
+    const caller = appRouter.createCaller(contextFor("assistant"));
+    await expect(
+      caller.caseManagement.saveBrief({
+        id: 1,
+        issue: "An issue for the Director",
+        background: "Background on the matter",
+        actionTaken: "What the province has done",
+        currentPosition: "Where the matter stands",
+        issueRequiringDecision: "",
+        recommendation: "What the province recommends",
+        decisionRequired: true,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("names the empty section instead of reporting a schema limit", async () => {
+    // The regression. The officer was looking at the validator's own report —
+    // origin, code, minimum, path — because that is what a `z.string().min(4)`
+    // says. What the issues carry now is a sentence naming the section, which
+    // is what the form shows against the offending textarea and what
+    // `formatInputError` folds into the message a client receives.
+    //
+    // `createCaller` throws before any response is shaped, so `message` is still
+    // the raw report here; it is the issues that matter, and they are read
+    // through the same list the formatter reads.
+    const caller = appRouter.createCaller(contextFor("assistant"));
+    const failure = await caller.caseManagement
+      .saveBrief({
+        id: 1,
+        issue: "An issue for the Director",
+        background: "Background on the matter",
+        actionTaken: "What the province has done",
+        currentPosition: "Where the matter stands",
+        issueRequiringDecision: "",
+        recommendation: "",
+        decisionRequired: true,
+      })
+      .catch((error: unknown) => error as { message: string });
+
+    const issues = JSON.parse(failure.message) as {
+      path: string[];
+      message: string;
+    }[];
+
+    expect(issues.map(issue => issue.path[0])).toEqual([
+      "issueRequiringDecision",
+      "recommendation",
+    ]);
+    expect(issues.map(issue => issue.message)).toEqual([
+      "Issue requiring decision is required.",
+      "Recommendation is required.",
+    ]);
+  });
+
+  it("does not require a decision from a matter not flagged for one", async () => {
+    // §12B's flag is what says there is a decision to be made. A brief for a
+    // matter the province is simply pursuing must not have to invent one, and
+    // the two sections become required again the moment it is flagged.
+    const caller = appRouter.createCaller(contextFor("assistant"));
+    await expect(
+      caller.caseManagement.saveBrief({
+        id: 1,
+        issue: "An issue for the Director",
+        background: "Background on the matter",
+        actionTaken: "What the province has done",
+        currentPosition: "Where the matter stands",
+        issueRequiringDecision: "",
+        recommendation: "",
+        decisionRequired: false,
+      })
+    ).rejects.not.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("requires both sections again as soon as the matter is flagged", async () => {
+    // The same payload as above, flagged. If the conditional sections were not
+    // wired to the flag, this would pass validation and store a brief that tells
+    // the Director nothing about what they are being asked to decide.
+    const caller = appRouter.createCaller(contextFor("assistant"));
+    await expect(
+      caller.caseManagement.saveBrief({
+        id: 1,
+        issue: "An issue for the Director",
+        background: "Background on the matter",
+        actionTaken: "What the province has done",
+        currentPosition: "Where the matter stands",
+        issueRequiringDecision: "",
+        recommendation: "",
+        decisionRequired: true,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("refuses a two-character section of a matter that is flagged", async () => {
+    const caller = appRouter.createCaller(contextFor("assistant"));
+    await expect(
+      caller.caseManagement.saveBrief({
+        id: 1,
+        issue: "An issue for the Director",
+        background: "Background on the matter",
+        actionTaken: "What the province has done",
+        currentPosition: "Where the matter stands",
+        issueRequiringDecision: "no",
+        recommendation: "What the province recommends",
+        decisionRequired: true,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("trims a section before measuring it, so padding is not a brief", async () => {
+    // Four spaces satisfy a naive length check and store an empty section.
+    const caller = appRouter.createCaller(contextFor("assistant"));
+    await expect(
+      caller.caseManagement.saveBrief({
+        id: 1,
+        issue: "An issue for the Director",
+        background: "Background on the matter",
+        actionTaken: "What the province has done",
+        currentPosition: "Where the matter stands",
+        issueRequiringDecision: "    ",
+        recommendation: "What the province recommends",
+        decisionRequired: true,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
 describe("§14 escalation ladder", () => {
   it("runs from the officer up to the Commission and the Legal Section", () => {
     expect(ESCALATION_LEVELS[0]?.label).toBe("Officer");
-    const labels = ESCALATION_LEVELS.map((level) => level.label);
+    const labels = ESCALATION_LEVELS.map(level => level.label);
     expect(labels).toContain("Director, Provincial Matters");
     expect(labels).toContain("Commission");
     expect(labels).toContain("Legal Section");
   });
 
   it("keeps the highest level addressable by the API", () => {
-    expect(Math.max(...ESCALATION_LEVELS.map((l) => l.level))).toBe(MAX_ESCALATION_LEVEL);
+    expect(Math.max(...ESCALATION_LEVELS.map(l => l.level))).toBe(
+      MAX_ESCALATION_LEVEL
+    );
   });
 });
 
