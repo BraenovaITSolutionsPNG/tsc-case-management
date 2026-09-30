@@ -45,12 +45,56 @@ const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
 
+/**
+ * Said once per process, not once per request.
+ *
+ * A serverless function re-evaluates its module on a cold start, so a message
+ * in module scope or a constructor is repeated on every request that misses the
+ * instance cache. Anything logged from here is therefore read by whoever is
+ * watching the logs of a deploy they are waiting on, and a line that says ERROR
+ * in bold about an optional integration trains people to ignore ERROR lines.
+ */
+let reportedOAuthConfiguration = false;
+
+function reportOAuthConfiguration() {
+  if (reportedOAuthConfiguration) return;
+  reportedOAuthConfiguration = true;
+  if (ENV.oAuthServerUrl) {
+    console.log("[OAuth] Identity provider configured:", ENV.oAuthServerUrl);
+    return;
+  }
+  // An absent portal is a configuration choice, not a fault: this deployment
+  // signs officers in with a username and password, and the provider is an
+  // alternative. It is logged so that a deployment which *expected* the provider
+  // and did not get it has something to grep for.
+  console.log(
+    "[OAuth] No identity provider configured. Signing in with a username and password; set OAUTH_SERVER_URL and NEXT_PUBLIC_OAUTH_PORTAL_URL to enable the provider instead."
+  );
+}
+
 class OAuthService {
-  constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
+  /** A getter rather than an instance, so no HTTP client is built for a
+   *  deployment that never uses the provider. */
+  constructor(private readonly getClient: () => AxiosInstance) {
+    reportOAuthConfiguration();
+  }
+
+  /** Whether the provider's address is known. */
+  get configured() {
+    return Boolean(ENV.oAuthServerUrl);
+  }
+
+  /**
+   * Refuses an exchange that has nowhere to go.
+   *
+   * Without this the request is posted to a relative path and axios resolves it
+   * against nothing, which surfaces as an obscure network error rather than as
+   * the missing variable that actually caused it.
+   */
+  private requireConfigured() {
+    if (!this.configured) {
+      throw new Error(
+        "This sign-in method is not available: OAUTH_SERVER_URL is not set on this deployment."
       );
     }
   }
@@ -63,6 +107,7 @@ class OAuthService {
     code: string,
     state: string
   ): Promise<ExchangeTokenResponse> {
+    this.requireConfigured();
     const payload: ExchangeTokenRequest = {
       clientId: ENV.appId,
       grantType: "authorization_code",
@@ -70,7 +115,7 @@ class OAuthService {
       redirectUri: this.decodeState(state),
     };
 
-    const { data } = await this.client.post<ExchangeTokenResponse>(
+    const { data } = await this.getClient().post<ExchangeTokenResponse>(
       EXCHANGE_TOKEN_PATH,
       payload
     );
@@ -81,7 +126,8 @@ class OAuthService {
   async getUserInfoByToken(
     token: ExchangeTokenResponse
   ): Promise<GetUserInfoResponse> {
-    const { data } = await this.client.post<GetUserInfoResponse>(
+    this.requireConfigured();
+    const { data } = await this.getClient().post<GetUserInfoResponse>(
       GET_USER_INFO_PATH,
       {
         accessToken: token.accessToken,
@@ -99,12 +145,24 @@ const createOAuthHttpClient = (): AxiosInstance =>
   });
 
 class SDKServer {
-  private readonly client: AxiosInstance;
+  private client: AxiosInstance | null;
   private readonly oauthService: OAuthService;
 
-  constructor(client: AxiosInstance = createOAuthHttpClient()) {
-    this.client = client;
-    this.oauthService = new OAuthService(this.client);
+  constructor(client?: AxiosInstance) {
+    this.client = client ?? null;
+    this.oauthService = new OAuthService(() => this.resolveClient());
+  }
+
+  /**
+   * The provider's HTTP client, built on first use.
+   *
+   * Every call that needs it is an OAuth call, and this deployment authenticates
+   * with a username and password, so a client is never constructed at all unless
+   * somebody actually signs in through the provider.
+   */
+  private resolveClient(): AxiosInstance {
+    this.client ??= createOAuthHttpClient();
+    return this.client;
   }
 
   private deriveLoginMethod(
@@ -256,10 +314,11 @@ class SDKServer {
       projectId: ENV.appId,
     };
 
-    const { data } = await this.client.post<GetUserInfoWithJwtResponse>(
-      GET_USER_INFO_WITH_JWT_PATH,
-      payload
-    );
+    const { data } =
+      await this.resolveClient().post<GetUserInfoWithJwtResponse>(
+        GET_USER_INFO_WITH_JWT_PATH,
+        payload
+      );
 
     const loginMethod = this.deriveLoginMethod(
       (data as any)?.platforms,
