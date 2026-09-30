@@ -1,0 +1,50 @@
+# Apply the schema in drizzle/ to the deployed database.
+#
+# The platform runs on the provider for MySQL, whose port is not one a laptop's
+# network necessarily lets through, so `pnpm db:push` on a development
+# machine is not a reliable way to migrate. A GitHub runner can reach it, and
+# the runner is the same on every machine, which also means the schema is
+# applied the same way by whoever pushes.
+#
+# Secrets: DATABASE_URL and DATABASE_CA_CERT, both repository secrets. The
+# second is the provider project CA, which is public - it is in the repository at
+# database/db-ca.crt - but it is passed the same way so the runner needs no
+# path resolution at run time and the two credentials stay symmetric.
+name: db push
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - drizzle/**
+      - drizzle.config.ts
+      - server/_core/databaseConnection.ts
+      - scripts/verify-schema.ts
+      - .github/workflows/db-push.yml
+concurrency:
+  # Two migrations against one database at once is how a half-applied schema
+  # happens. A push while one is running queues behind it rather than racing.
+  group: db-push
+  cancel-in-progress: false
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `migrate` and not `pnpm db:push`, which is `generate` then `migrate`:
+      # generate writes a new migration file, and a file generated on a runner
+      # and never committed is a migration nobody reviewed. Schema changes are
+      # generated and committed locally, where they can be read.
+      - run: pnpm exec drizzle-kit migrate
+      # Turns "the job went green" into "the tables are there", which is the
+      # difference between a green job and a working application.
+      - run: pnpm db:verify
