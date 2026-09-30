@@ -1,5 +1,6 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import * as db from "../db";
+import { isDatabaseConfigured } from "../db";
 import { getSessionCookieOptions, serializeCookie } from "./cookies";
 import { ENV } from "./env";
 import {
@@ -125,6 +126,23 @@ export async function handleLogin(
       body: { error: "Enter both a username and a password." },
     };
   }
+  // Checked before the credentials are compared, because the two are
+  // indistinguishable from the outside: a deployment with no database has no
+  // accounts to match against, and "that username and password do not match" is
+  // a true statement that sends the officer off to retyping a password that was
+  // never the problem.
+  if (!isDatabaseConfigured()) {
+    console.error(
+      "[LocalAuth] Sign-in attempted with no database configured. DATABASE_URL is not set on this deployment."
+    );
+    return {
+      status: 503,
+      body: {
+        error:
+          "Sign-in is unavailable: this deployment has no database configured. Tell the platform administrator.",
+      },
+    };
+  }
   if (tooManyAttempts(username, failuresByUser, MAX_ATTEMPTS_PER_USER)) {
     return {
       status: 429,
@@ -189,7 +207,10 @@ export async function handleLogin(
         name: COOKIE_NAME,
         value: sessionToken,
         options: {
-          ...getSessionCookieOptions({ protocol: secure ? "https" : "http", headers: {} }),
+          ...getSessionCookieOptions({
+            protocol: secure ? "https" : "http",
+            headers: {},
+          }),
           maxAge: ONE_YEAR_MS,
         },
       },
@@ -210,8 +231,7 @@ export async function handleSetCredential(
   const role = typeof body.role === "string" ? body.role : undefined;
   // The account's display name, as it should appear in the accountability
   // trail on every matter the person handles (§15).
-  const displayName =
-    typeof body.name === "string" ? body.name.trim() : "";
+  const displayName = typeof body.name === "string" ? body.name.trim() : "";
 
   if (!username || !password) {
     return {
@@ -264,7 +284,10 @@ export async function handleSetCredential(
   console.log(
     `[LocalAuth] Created ${chosen} account "${username}" as ${created?.name}`
   );
-  return { status: 200, body: { ok: true, name: created?.name, role: created?.role } };
+  return {
+    status: 200,
+    body: { ok: true, name: created?.name, role: created?.role },
+  };
 }
 
 /** Only same-origin relative paths, mirroring the OAuth callback's check. */
@@ -277,7 +300,6 @@ export function safeNextPath(value: string | undefined): string {
   if (/[\u0000-\u001f\u007f]/.test(value)) return "/";
   return value;
 }
-
 
 export { serializeCookie };
 
