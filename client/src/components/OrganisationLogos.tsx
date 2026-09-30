@@ -44,6 +44,7 @@ export function OrganisationLogos({
   sizes = "96px",
   width = 96,
   height = 72,
+  framed = true,
 }: {
   className?: string;
   /** Sized per slot: the expanded header and the collapsed footer differ. */
@@ -69,6 +70,15 @@ export function OrganisationLogos({
    */
   width?: number;
   height?: number;
+  /**
+   * Whether each mark sits in a bordered white tile.
+   *
+   * True in the navigation, where the marks have to hold their own against the
+   * sidebar. False on the sign-in screen, where they stand directly on the
+   * colour field of the brand panel and a tile around each one reads as a
+   * third box in a composition that has two.
+   */
+  framed?: boolean;
 }) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -77,7 +87,9 @@ export function OrganisationLogos({
           key={mark.short}
           title={mark.title}
           className={cn(
-            "flex min-w-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-white",
+            "flex min-w-0 items-center justify-center",
+            framed &&
+              "overflow-hidden rounded-md border border-slate-200 bg-white",
             markClassName
           )}
         >
@@ -87,7 +99,15 @@ export function OrganisationLogos({
             width={width}
             height={height}
             sizes={sizes}
-            className="h-full w-full object-contain"
+            className={
+              framed
+                ? "h-full w-full object-contain"
+                : // Unframed, the slot is as wide as the mark's own aspect makes
+                  // it: two marks sharing one 4:3 box would letterbox the
+                  // narrower one to a third of its height, which is how a pair
+                  // of crests ends up looking like one crest and a squint.
+                  "h-full w-auto object-contain"
+            }
           />
         </span>
       ))}
