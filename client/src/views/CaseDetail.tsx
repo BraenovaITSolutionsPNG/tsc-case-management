@@ -23,8 +23,10 @@ import {
   MAX_ESCALATION_LEVEL,
   GOLDEN_RULE_PARTS,
   REFERRAL_CRITERIA,
+  briefNeedsDecision,
   escalationLabel,
   isCasefileMimeType,
+  validateCaseBrief,
   type CasefileMimeType,
 } from "@shared/delegation";
 import type { MatterType } from "@shared/matters";
@@ -268,10 +270,7 @@ export default function CaseDetail() {
               <dl className="space-y-2.5 text-sm">
                 <Row label="Class of matter" value={matter.matterType} />
                 <Row label="Province" value={matter.province} />
-                <Row
-                  label="Received"
-                  value={formatDate(matter.dateReceived)}
-                />
+                <Row label="Received" value={formatDate(matter.dateReceived)} />
                 <Row
                   label="Officer"
                   value={
@@ -284,7 +283,11 @@ export default function CaseDetail() {
                   label="Due"
                   value={
                     matter.dueDate ? (
-                      <span className={overdue ? "font-medium text-red-700" : undefined}>
+                      <span
+                        className={
+                          overdue ? "font-medium text-red-700" : undefined
+                        }
+                      >
                         {formatDate(matter.dueDate)}
                       </span>
                     ) : (
@@ -303,7 +306,10 @@ export default function CaseDetail() {
               </dl>
             </CardPanel>
 
-            <CardPanel title="Action required" description="The assigned action.">
+            <CardPanel
+              title="Action required"
+              description="The assigned action."
+            >
               {matter.actionRequired ? (
                 <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
                   {matter.actionRequired}
@@ -311,13 +317,17 @@ export default function CaseDetail() {
               ) : (
                 <p className="text-sm text-red-700">
                   No action recorded. The Golden Rule requires an assigned
-                  action before a matter moves beyond &quot;Newly received&quot;.
+                  action before a matter moves beyond &quot;Newly
+                  received&quot;.
                 </p>
               )}
             </CardPanel>
 
             {!isOpenStatus(matter.status) ? (
-              <CardPanel title="Recorded outcome" description="No matter closed without an outcome.">
+              <CardPanel
+                title="Recorded outcome"
+                description="No matter closed without an outcome."
+              >
                 {matter.outcome ? (
                   <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
                     {matter.outcome}
@@ -343,7 +353,10 @@ export default function CaseDetail() {
             <CardPanel title="The Golden Rule">
               <ul className="space-y-2">
                 {GOLDEN_RULE_PARTS.map(part => (
-                  <li key={part.key} className="flex gap-2 text-xs text-slate-700">
+                  <li
+                    key={part.key}
+                    className="flex gap-2 text-xs text-slate-700"
+                  >
                     <CheckCircle2
                       className="mt-0.5 h-3.5 w-3.5 shrink-0 text-teal-600"
                       aria-hidden
@@ -596,16 +609,18 @@ function MatterTab({
             name="escalationLevel"
             value={matter.escalationLevel}
             disabled={!canEscalate}
-            onChange={event => send({ escalationLevel: Number(event.target.value) })}
+            onChange={event =>
+              send({ escalationLevel: Number(event.target.value) })
+            }
             className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm disabled:opacity-60"
           >
-            {ESCALATION_LEVELS.filter(level => level.level <= MAX_ESCALATION_LEVEL).map(
-              level => (
-                <option key={level.level} value={level.level}>
-                  {level.level} — {level.label}
-                </option>
-              )
-            )}
+            {ESCALATION_LEVELS.filter(
+              level => level.level <= MAX_ESCALATION_LEVEL
+            ).map(level => (
+              <option key={level.level} value={level.level}>
+                {level.level} — {level.label}
+              </option>
+            ))}
           </select>
         </Gate>
         {!canEscalate ? (
@@ -700,7 +715,9 @@ function ClosureForm({
   });
 
   const ready =
-    outcome.trim().length >= 8 && dateClosed.length > 0 && communicatedByName.trim().length >= 2;
+    outcome.trim().length >= 8 &&
+    dateClosed.length > 0 &&
+    communicatedByName.trim().length >= 2;
 
   return (
     <CardPanel
@@ -840,7 +857,11 @@ function DecisionForm({
         size="sm"
         disabled={decide.isPending}
         onClick={() =>
-          decide.mutate({ id, decidedByName: decidedByName.trim(), outcome: outcome.trim() })
+          decide.mutate({
+            id,
+            decidedByName: decidedByName.trim(),
+            outcome: outcome.trim(),
+          })
         }
       >
         {decide.isPending ? (
@@ -924,7 +945,8 @@ function ActivityTab({
               <p className="text-sm text-slate-800">{event.note}</p>
               <p className="mt-0.5 text-xs text-slate-500">
                 {event.actorName ?? "Unknown officer"} ·{" "}
-                {formatDateTime(event.createdAt)} · {event.eventType.replace(/_/g, " ")}
+                {formatDateTime(event.createdAt)} ·{" "}
+                {event.eventType.replace(/_/g, " ")}
               </p>
             </li>
           ))}
@@ -1119,7 +1141,9 @@ function ReferralCard({
           makes the notification part of the referral rather than a courtesy. */}
       {referral.isLegal ? (
         <p className="mt-2 text-xs text-slate-500">
-          <span className="font-medium text-slate-600">§6 Director notified:</span>{" "}
+          <span className="font-medium text-slate-600">
+            §6 Director notified:
+          </span>{" "}
           {referral.directorNotifiedName
             ? `${referral.directorNotifiedName} on ${formatDate(referral.directorNotifiedAt)}`
             : "Not recorded"}
@@ -1191,7 +1215,11 @@ function ReferralCard({
                   ) : null}
                   Record response
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setOpen(false)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -1272,7 +1300,9 @@ function CaseFileTab({
         }
       >
         {!canWrite ? (
-          <p className="mb-3 text-xs text-slate-500">{refusalFor(role, "file:write")}</p>
+          <p className="mb-3 text-xs text-slate-500">
+            {refusalFor(role, "file:write")}
+          </p>
         ) : null}
 
         {adding && canWrite ? (
@@ -1423,7 +1453,9 @@ function AddDocumentForm({
         </span>
       </label>
       <label className="block space-y-1.5">
-        <span className="text-xs font-medium text-slate-700">Note (optional)</span>
+        <span className="text-xs font-medium text-slate-700">
+          Note (optional)
+        </span>
         <Textarea
           id="document-note"
           name="documentNote"
@@ -1434,7 +1466,9 @@ function AddDocumentForm({
       </label>
       {error ? <p className="text-xs text-red-700">{error}</p> : null}
       <Button size="sm" onClick={submit} disabled={add.isPending}>
-        {add.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        {add.isPending ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : null}
         File against the matter
       </Button>
     </div>
@@ -1478,7 +1512,10 @@ function DocumentRow({
     <li className="flex items-start justify-between gap-3 py-3">
       <div className="min-w-0">
         <p className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
-          <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+          <Paperclip
+            className="h-3.5 w-3.5 shrink-0 text-slate-400"
+            aria-hidden
+          />
           {document.title}
         </p>
         <p className="mt-0.5 text-xs text-slate-500">
@@ -1513,9 +1550,7 @@ function DocumentRow({
           variant="ghost"
           disabled={remove.isPending}
           aria-label={`Remove ${document.title}`}
-          onClick={() =>
-            remove.mutate({ id: document.id, caseId })
-          }
+          onClick={() => remove.mutate({ id: document.id, caseId })}
         >
           <Trash2 className="h-4 w-4 text-slate-400" />
         </Button>
@@ -1525,6 +1560,52 @@ function DocumentRow({
 }
 
 // ---------------------------------------------------------------- Brief
+
+/**
+ * Turns a failed mutation into a sentence an officer can act on.
+ *
+ * A schema rejection arrives carrying the validator's own report — a JSON array
+ * of issues, each naming a field path and a limit — and `error.message` is that
+ * report verbatim. Rendering it as-is put
+ * `[{"origin":"string","code":"too_small",...}]` on the screen under a form the
+ * officer had filled in correctly except for two boxes, which tells them
+ * nothing they can use. The field-level checks below catch that case before it
+ * is sent; this is the backstop for anything that still gets through, such as a
+ * second officer having saved a changed brief first.
+ */
+function briefSaveError(cause: { message: string; data?: unknown }): string {
+  const zod = (cause.data as { zodError?: unknown } | undefined)?.zodError;
+
+  if (zod && typeof zod === "object" && "fieldErrors" in zod) {
+    const fieldErrors = (zod as { fieldErrors?: Record<string, string[]> })
+      .fieldErrors;
+    const lines = CASE_BRIEF_FIELDS.flatMap(field => {
+      const messages = fieldErrors?.[field.key];
+      return messages?.length ? [`${field.label}: ${messages[0]}`] : [];
+    });
+    if (lines.length) {
+      return `The case brief was not saved — ${lines.join(" ")}`;
+    }
+  }
+
+  // A report with no field grouping still has readable messages in it; the
+  // wrapper around them is what makes it look like a crash.
+  if (zod && Array.isArray(zod) && zod.length) {
+    const messages = zod
+      .map(issue => (issue as { message?: string }).message)
+      .filter((message): message is string => Boolean(message));
+    if (messages.length)
+      return `The case brief was not saved — ${messages.join(" ")}`;
+  }
+
+  if (
+    cause.message.trim().startsWith("[") ||
+    cause.message.trim().startsWith("{")
+  ) {
+    return "The case brief was not saved. Check every section has been filled in.";
+  }
+  return cause.message;
+}
 
 /** The short case report prepared before a matter reaches the Director. */
 function BriefTab({
@@ -1540,6 +1621,7 @@ function BriefTab({
   const query = trpc.caseManagement.getById.useQuery({ id });
   const [values, setValues] = useState<Record<string, string> | null>(null);
   const [decisionRequired, setDecisionRequired] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
   const save = trpc.caseManagement.saveBrief.useMutation({
@@ -1547,13 +1629,45 @@ function BriefTab({
       void invalidateMatterWrites(utils, id);
       onChanged();
       setError("");
+      setFieldErrors({});
       toast.success("Case brief saved.");
     },
-    onError: cause => setError(cause.message),
+    onError: cause => {
+      setError(briefSaveError(cause));
+      // A server-side rejection of a specific section is shown against that
+      // section too, so the message does not contradict a form that currently
+      // looks complete. The grouped report carries a list per field; the form
+      // shows one line per field, and only for sections it actually renders.
+      const grouped = (
+        cause.data as
+          | {
+              zodError?: { fieldErrors?: Record<string, string[] | undefined> };
+            }
+          | undefined
+      )?.zodError?.fieldErrors;
+      if (grouped) {
+        setFieldErrors(
+          Object.fromEntries(
+            CASE_BRIEF_FIELDS.flatMap(field => {
+              const messages = grouped[field.key];
+              return messages?.length ? [[field.key, messages[0]]] : [];
+            })
+          )
+        );
+      }
+    },
   });
 
   const matter = query.data;
   const canWrite = can(role, "brief:write");
+  // The same pair the server and the Director's queue use: the officer's flag,
+  // or a matter that is already sitting at Awaiting decision. Computed from the
+  // loaded matter rather than from the checkbox alone, so a matter already at DEC
+  // explains its two sections before the officer touches anything.
+  const needsDecision = briefNeedsDecision(
+    decisionRequired,
+    matter?.status as string | undefined
+  );
 
   /**
    * Seeded from the stored brief once it arrives, so a saved brief is not
@@ -1581,7 +1695,9 @@ function BriefTab({
       description="Before presenting a matter to the Director, prepare a short case report. Tick the box to place it in the Director's attention queue."
     >
       {!canWrite ? (
-        <p className="mb-3 text-xs text-slate-500">{refusalFor(role, "brief:write")}</p>
+        <p className="mb-3 text-xs text-slate-500">
+          {refusalFor(role, "brief:write")}
+        </p>
       ) : null}
 
       {matter.briefPreparedByName ? (
@@ -1591,65 +1707,137 @@ function BriefTab({
         </p>
       ) : null}
 
-      <div className="space-y-4">
-        {CASE_BRIEF_FIELDS.map(field => (
-          <label key={field.key} className="block space-y-1.5">
-            <span className="text-xs font-medium text-slate-700">{field.label}</span>
-            <Textarea
-              // One field per brief section, each addressable by its own key so
-              // the browser and any assistive technology can tell the six apart.
-              id={`brief-${field.key}`}
-              name={field.key}
-              value={values[field.key] ?? ""}
-              disabled={!canWrite}
-              rows={3}
-              onChange={event =>
-                setValues(current => ({
-                  ...(current ?? {}),
-                  [field.key]: event.target.value,
-                }))
-              }
-            />
-            <span className="block text-xs text-slate-500">{field.hint}</span>
-          </label>
-        ))}
+      {/* The flag comes before the sections, not after them: it is what decides
+          whether the last two are needed, and an officer asked to fill in six
+          required-looking boxes before being told two of them may be blank has
+          been asked in the wrong order. A matter already at Awaiting decision
+          says so here too, so the two sections explain themselves rather than
+          appearing to be required for no stated reason. */}
+      <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <label className="flex items-start gap-2.5">
+          <input
+            id="brief-decision-required"
+            name="decisionRequired"
+            type="checkbox"
+            checked={decisionRequired}
+            disabled={!canWrite}
+            onChange={event => setDecisionRequired(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-input"
+          />
+          <span className="text-sm text-slate-700">
+            This matter requires the Director&apos;s attention
+          </span>
+        </label>
+        <p className="mt-2 pl-7 text-xs text-slate-500">
+          {needsDecision
+            ? "Tick this to put the matter in the Director's queue. The two decision sections below are required while it is ticked."
+            : "Leave this unticked for a matter the province is simply pursuing. The two decision sections below are then optional."}
+        </p>
+        {matter.status === "DEC" && !decisionRequired ? (
+          <p className="mt-1.5 pl-7 text-xs text-amber-700">
+            This matter is already at Awaiting decision, so the two decision
+            sections below are required whether or not it is ticked.
+          </p>
+        ) : null}
       </div>
 
-      <label className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
-        <input
-          id="brief-decision-required"
-          name="decisionRequired"
-          type="checkbox"
-          checked={decisionRequired}
-          disabled={!canWrite}
-          onChange={event => setDecisionRequired(event.target.checked)}
-          className="h-4 w-4 rounded border-input"
-        />
-        <span className="text-sm text-slate-700">
-          This matter requires the Director&apos;s attention
-        </span>
-      </label>
+      <div className="space-y-4">
+        {CASE_BRIEF_FIELDS.map(field => {
+          const message = fieldErrors[field.key];
+          return (
+            <label key={field.key} className="block space-y-1.5">
+              <span className="text-xs font-medium text-slate-700">
+                {field.label}
+              </span>
+              <Textarea
+                // One field per brief section, each addressable by its own key so
+                // the browser and any assistive technology can tell the six apart.
+                id={`brief-${field.key}`}
+                name={field.key}
+                value={values[field.key] ?? ""}
+                disabled={!canWrite}
+                rows={3}
+                aria-invalid={message ? true : undefined}
+                aria-describedby={
+                  message ? `brief-${field.key}-error` : undefined
+                }
+                className={cn(message && "border-red-400")}
+                onChange={event => {
+                  const next = event.target.value;
+                  setValues(current => ({
+                    ...(current ?? {}),
+                    [field.key]: next,
+                  }));
+                  // Clear a section's error the moment it is corrected, so the
+                  // message does not outlive the mistake it describes.
+                  if (message) {
+                    setFieldErrors(current => {
+                      if (!current[field.key]) return current;
+                      const rest = { ...current };
+                      delete rest[field.key];
+                      return rest;
+                    });
+                  }
+                }}
+              />
+              <span className="block text-xs text-slate-500">
+                {field.conditional && !needsDecision
+                  ? `${field.hint} — only needed when this matter is flagged for the Director's attention.`
+                  : field.hint}
+              </span>
+              {message ? (
+                <span
+                  id={`brief-${field.key}-error`}
+                  className="block text-xs text-red-700"
+                >
+                  {message}
+                </span>
+              ) : null}
+            </label>
+          );
+        })}
+      </div>
 
-      {error ? <p className="mt-3 text-xs text-red-700">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="mt-3 text-xs text-red-700">
+          {error}
+        </p>
+      ) : null}
 
       {canWrite ? (
         <Button
           className="mt-4"
           disabled={save.isPending}
-          onClick={() =>
+          onClick={() => {
+            // Checked here rather than left to the server, because a rejection
+            // costs a round trip and answers with a schema report. The rules are
+            // the shared ones, so this cannot disagree with what the server
+            // would have said.
+            const next = validateCaseBrief(values, needsDecision);
+            setFieldErrors(next);
+            if (Object.keys(next).length) {
+              setError(
+                "The case brief was not saved — fill in every section before saving."
+              );
+              return;
+            }
+            setError("");
             save.mutate({
               id,
-              issue: values.issue ?? "",
-              background: values.background ?? "",
-              actionTaken: values.actionTaken ?? "",
-              currentPosition: values.currentPosition ?? "",
-              issueRequiringDecision: values.issueRequiringDecision ?? "",
-              recommendation: values.recommendation ?? "",
+              issue: values.issue?.trim() ?? "",
+              background: values.background?.trim() ?? "",
+              actionTaken: values.actionTaken?.trim() ?? "",
+              currentPosition: values.currentPosition?.trim() ?? "",
+              issueRequiringDecision:
+                values.issueRequiringDecision?.trim() ?? "",
+              recommendation: values.recommendation?.trim() ?? "",
               decisionRequired,
-            })
-          }
+            });
+          }}
         >
-          {save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {save.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : null}
           Save the case brief
         </Button>
       ) : null}
@@ -1693,7 +1881,9 @@ function Gate({
     <label className="block space-y-1.5">
       <span className="text-xs font-medium text-slate-700">{label}</span>
       {children}
-      {hint ? <span className="block text-xs text-slate-500">{hint}</span> : null}
+      {hint ? (
+        <span className="block text-xs text-slate-500">{hint}</span>
+      ) : null}
       {disabled ? (
         <span className="block text-xs text-slate-400">
           {refusalFor(role, capability)}
@@ -1716,7 +1906,9 @@ function NotAMatter({
     <div className="rounded-lg border border-slate-200 bg-white px-6 py-12 text-center">
       <FileText className="mx-auto h-9 w-9 text-slate-300" aria-hidden />
       <h1 className="mt-3 text-lg font-semibold text-slate-900">{heading}</h1>
-      {detail ? <p className="mt-1.5 text-sm text-slate-600">{detail}</p> : null}
+      {detail ? (
+        <p className="mt-1.5 text-sm text-slate-600">{detail}</p>
+      ) : null}
       <div className="mt-5 flex justify-center gap-2">
         <Button asChild variant="secondary">
           <Link href="/cases">Back to the register</Link>

@@ -332,31 +332,119 @@ export function isCasefileMimeType(type: string): type is CasefileMimeType {
 // "Before presenting a matter to the Director, prepare a short case report."
 // ---------------------------------------------------------------------------
 
-export const CASE_BRIEF_FIELDS: { key: string; label: string; hint: string }[] =
-  [
-    { key: "issue", label: "Issue", hint: "What is the problem" },
-    { key: "background", label: "Background", hint: "What happened" },
-    {
-      key: "actionTaken",
-      label: "Action taken",
-      hint: "What has already been done",
-    },
-    {
-      key: "currentPosition",
-      label: "Current position",
-      hint: "Where is the matter now",
-    },
-    {
-      key: "issueRequiringDecision",
-      label: "Issue requiring decision",
-      hint: "What does the Director need to decide",
-    },
-    {
-      key: "recommendation",
-      label: "Recommendation",
-      hint: "What action is proposed",
-    },
-  ];
+export const CASE_BRIEF_FIELDS: {
+  key: string;
+  label: string;
+  hint: string;
+  /**
+   * Set on the two sections that exist only for a matter the Director is being
+   * asked to decide something about. A brief with nothing to put to the Director
+   * should not have to invent a decision to complete it.
+   */
+  conditional?: boolean;
+}[] = [
+  { key: "issue", label: "Issue", hint: "What is the problem" },
+  { key: "background", label: "Background", hint: "What happened" },
+  {
+    key: "actionTaken",
+    label: "Action taken",
+    hint: "What has already been done",
+  },
+  {
+    key: "currentPosition",
+    label: "Current position",
+    hint: "Where is the matter now",
+  },
+  {
+    key: "issueRequiringDecision",
+    label: "Issue requiring decision",
+    hint: "What does the Director need to decide",
+    conditional: true,
+  },
+  {
+    key: "recommendation",
+    label: "Recommendation",
+    hint: "What action is proposed",
+    conditional: true,
+  },
+];
+
+/** The brief sections that are only required when a decision is being sought. */
+export const CASE_BRIEF_CONDITIONAL_KEYS = CASE_BRIEF_FIELDS.filter(
+  field => field.conditional
+).map(field => field.key);
+
+/**
+ * The shortest a brief section may be, in characters.
+ *
+ * Four is not a claim about how long a case report ought to be — it is the
+ * floor below which the section is blank rather than brief. It lives here, next
+ * to the field list, because the server's schema and the brief form's own
+ * validation both enforce it: when they were written separately they drifted,
+ * and the result was an officer who filled in four sections, left the fifth
+ * empty, and was answered with a raw schema dump instead of a sentence about
+ * which section was missing.
+ */
+export const CASE_BRIEF_MIN_LENGTH = 4;
+
+/**
+ * Validates one brief section.
+ *
+ * Returns the message to show against that field, or `null` when it is
+ * acceptable. Blank and too-short are told apart on purpose: "this is required"
+ * and "write a bit more" are different instructions, and collapsing them into
+ * one message is how an officer ends up typing four characters to get past a
+ * check they did not understand.
+ */
+export function caseBriefFieldError(
+  field: { key: string; label: string },
+  value: string | undefined
+): string | null {
+  const length = (value ?? "").trim().length;
+  if (length === 0) return `${field.label} is required.`;
+  if (length < CASE_BRIEF_MIN_LENGTH) {
+    return `Write at least ${CASE_BRIEF_MIN_LENGTH} characters in ${field.label.toLowerCase()}.`;
+  }
+  return null;
+}
+
+/**
+ * Whether a matter is asking the Director for something.
+ *
+ * The §12B flag is the officer's instrument for saying so, but it is not the
+ * only signal: a matter sitting at DEC — "Awaiting decision" — is asking by its
+ * status whatever the flag says. The Director's own queue is built from both
+ * (`decisionRequired || status === "DEC"`), so the brief has to be judged on the
+ * same pair, or a matter can appear in that queue with a brief that never says
+ * what is being decided.
+ */
+export function briefNeedsDecision(
+  decisionRequired: boolean,
+  status?: string
+): boolean {
+  return decisionRequired || status === "DEC";
+}
+
+/**
+ * Every failing section of a brief, keyed by field, ready to render.
+ *
+ * `needsDecision` decides whether the two conditional sections are checked at
+ * all. A matter nobody is asking a decision of has nothing for the Director to
+ * decide, so requiring one would mean every brief for a matter the province is
+ * simply pursuing carried two invented sections.
+ */
+export function validateCaseBrief(
+  values: Record<string, string | undefined>,
+  needsDecision = true
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of CASE_BRIEF_FIELDS) {
+    if (field.conditional && !needsDecision) continue;
+    const message = caseBriefFieldError(field, values[field.key]);
+    if (message) errors[field.key] = message;
+  }
+  return errors;
+}
 
 // ---------------------------------------------------------------------------
 // §8: what an Industrial and General referral must state.
