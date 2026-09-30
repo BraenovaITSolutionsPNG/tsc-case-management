@@ -1,0 +1,46 @@
+# MariaDB 12 for the TSC Case Management platform.
+#
+#   docker compose up -d          start the database
+#   docker compose down           stop it (data is kept in the named volume)
+#   docker compose down -v        stop it and delete the data
+#
+# The app runs on the host, so DATABASE_URL in .env points at 127.0.0.1:3306 and
+# this service only needs to publish the port. If you run the app in a container
+# too, add it to the same network and switch the host in DATABASE_URL to the
+# service name `mariadb`.
+#
+# database/bootstrap.sql is mounted into the entrypoint init directory, so the
+# database, user and grants are created on first start of an empty volume only.
+# On an existing volume re-apply it with:
+#   docker compose exec -T mariadb mariadb -u root < database/bootstrap.sql
+
+services:
+  mariadb:
+    image: mariadb:12
+    container_name: tsc-mariadb
+    restart: unless-stopped
+    command:
+      # utf8mb4 throughout so teacher names and matter text survive any character.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-tsc_root_password}
+      MARIADB_DATABASE: tsc_case_management
+      MARIADB_USER: tsc
+      MARIADB_PASSWORD: ${DB_PASSWORD:-tsc_dev_password}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+      # Runs once, when the data volume is first initialised.
+      - ./database/bootstrap.sql:/docker-entrypoint-initdb.d/10-bootstrap.sql:ro
+    healthcheck:
+      # The app should not start migrating before the server accepts connections.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  mariadb-data:
