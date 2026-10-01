@@ -118,7 +118,7 @@ DATABASE_URL=<the 5432 string> pnpm db:push
 
 If it fails with `Network is unreachable` while HTTPS to supabase.com works, that
 is an egress firewall on outbound Postgres ports, not a bad credential. Use the
-workflow, or the local database below.
+workflow below — it runs elsewhere, where the port is open.
 
 ### Applying the schema without a connection (Supabase SQL Editor)
 
@@ -144,20 +144,14 @@ re-apply everything from `0000`. Every statement is either guarded or fails on
 "already exists", so that is noisy rather than harmful — but the CI route is
 preferred wherever it works, because it leaves a record of what it applied.
 
-### A local database, for working offline
+### There is no local database
 
-```bash
-docker compose up -d
-```
-
-Then point `DATABASE_URL` at it and set `DATABASE_SSL=disable`:
-
-```
-DATABASE_URL=postgresql://tsc:tsc_dev_password@127.0.0.1:5433/tsc_case_management
-```
-
-5433 rather than 5432 so it does not collide with another project's database.
-`docker compose down -v` deletes the data.
+The app reads Supabase, and it reads it over TCP. There is no offline route:
+no bundled database server, no local one to start. Where the network blocks
+outbound Postgres, the sign-in screen says so in as many words — "The platform
+cannot reach its database" — rather than showing a form that will never be
+accepted. That message is the honest answer, and the only fix is a network that
+permits the pooler, or a deployment somewhere that has egress.
 
 ### What `pnpm db:verify` asserts
 
@@ -362,8 +356,11 @@ configuration guards, pagination arithmetic, and the query cache policy.
 ## Troubleshooting
 
 **"Network is unreachable" connecting to Supabase, while HTTPS works.**
-An egress firewall on outbound Postgres ports. Migrations go through the GitHub
-workflow; the app needs the pooler reachable, so use `docker compose up -d`.
+An egress firewall on outbound Postgres ports — common on office and campus
+networks. Supabase Auth is on 443, so sign-in succeeds and the account check
+that follows cannot happen; that combination is the signature of this. There is
+no local database to fall back on. The fix is a network that permits the pooler,
+or running the app from a host with egress.
 
 **`SELF_SIGNED_CERT_IN_CHAIN` in the migration job.**
 `DATABASE_CA_CERT` is unset or wrong. It must be the PEM from Dashboard →
