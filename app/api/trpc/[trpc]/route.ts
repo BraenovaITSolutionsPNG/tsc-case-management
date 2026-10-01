@@ -16,7 +16,7 @@ import { applyCookies, toTrpcRequest } from "@server/_core/http";
 
 export const runtime = "nodejs";
 
-// Drizzle, MySQL and node:crypto all need the Node runtime, and every
+// Drizzle, the PostgreSQL driver and node:crypto all need the Node runtime, and every
 // procedure reads or writes per-user data, so nothing here is cacheable.
 export const dynamic = "force-dynamic";
 
