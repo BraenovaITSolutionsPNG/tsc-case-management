@@ -331,10 +331,17 @@ function LoginForm() {
 
   // Signed in with Supabase, and refused by us.
   //
-  // Reached because a correct password is not the same as an account: the row
-  // behind the session may not exist, or may have been deactivated. Both land
-  // here after `useAuth` redirects, and without this they are shown a form that
-  // will not accept them.
+  // Reached because a correct password is not the same as being let in: the row
+  // behind the session may not exist, may have been deactivated, or may not have
+  // been reachable to find out. All three land here after `useAuth` redirects,
+  // and without this they are shown a form that will not accept them.
+  //
+  // So nothing on this screen claims to know which of the three it is. The
+  // refusal above is the one place that knows, and it is written per fault; a
+  // fixed second paragraph asserting a cause is how the previous wording came
+  // to tell a platform with no database that the officer's record was the
+  // problem — an account the operator would then go and create, for an officer
+  // who already had one.
   if (refusal) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6">
@@ -343,15 +350,14 @@ function LoginForm() {
           style={PALETTE as React.CSSProperties}
         >
           <h2 className="text-2xl font-bold text-[var(--login-ink)]">
-            Signed in, but not set up
+            Signed in, but we cannot sign you in
           </h2>
           <p className="mt-4 text-[0.9375rem] leading-6 text-[var(--login-body)]">
             {refusal}
           </p>
           <p className="mt-4 text-[13px] leading-6 text-[var(--login-muted)]">
-            Your password was accepted — Supabase confirmed who you are. What is
-            missing is an officer record on this platform, and only an
-            administrator can add one.
+            Your password was accepted — Supabase confirmed who you are. What
+            happens next is not yours to fix: an administrator has to.
           </p>
           <Button
             type="button"
