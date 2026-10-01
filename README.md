@@ -47,20 +47,21 @@ Connection settings → URI, for `DATABASE_URL` and the two GitHub secrets below
 
 ## Commands
 
-| Command            | What it does                                         |
-| ------------------ | ---------------------------------------------------- |
-| `pnpm dev`         | Development server on port 3000                      |
-| `pnpm build`       | Production build                                     |
-| `pnpm start`       | Serve the production build                           |
-| `pnpm check`       | TypeScript, no emit                                  |
-| `pnpm test`        | Vitest                                               |
-| `pnpm format`      | Prettier                                             |
-| `pnpm db:push`     | Generate a migration from the schema, then apply it  |
-| `pnpm db:migrate`  | Apply migrations only (no generation)                |
-| `pnpm db:seed`     | Create the first administrator                       |
-| `pnpm db:verify`   | Assert the schema landed and is safe                 |
-| `pnpm db:testdata` | Load the demonstration register                      |
-| `pnpm db:load`     | Import the pre-PostgreSQL MySQL data (one time only) |
+| Command                | What it does                                         |
+| ---------------------- | ---------------------------------------------------- |
+| `pnpm dev`             | Development server on port 3000                      |
+| `pnpm build`           | Production build                                     |
+| `pnpm start`           | Serve the production build                           |
+| `pnpm check`           | TypeScript, no emit                                  |
+| `pnpm test`            | Vitest                                               |
+| `pnpm format`          | Prettier                                             |
+| `pnpm db:push`         | Generate a migration from the schema, then apply it  |
+| `pnpm db:migrate`      | Apply migrations only (no generation)                |
+| `pnpm db:seed`         | Create the first administrator                       |
+| `pnpm admin:bootstrap` | Same, over HTTPS — no database port or certificate   |
+| `pnpm db:verify`       | Assert the schema landed and is safe                 |
+| `pnpm db:testdata`     | Load the demonstration register                      |
+| `pnpm db:load`         | Import the pre-PostgreSQL MySQL data (one time only) |
 
 ---
 
@@ -214,6 +215,21 @@ SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... \
 SEED_ADMIN_EMAIL=you@example.org \
 pnpm db:seed
 ```
+
+If the database port is unreachable — a laptop that cannot route to Supabase's
+IPv6-only host, or a network that firewalls 5432 — use `pnpm admin:bootstrap`
+instead. It creates the identity through Supabase's Auth admin API and writes the
+register row through PostgREST, both over HTTPS, so it needs no connection string
+and no CA certificate:
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SEED_ADMIN_EMAIL=... \
+SEED_ADMIN_PASSWORD=... pnpm admin:bootstrap
+```
+
+Both routes need the service role and produce the same result; `admin:bootstrap`
+is simply reachable when `db:seed` is not. It is idempotent, and re-running it
+afterwards changes nothing.
 
 It creates one `super_admin`. Re-running it changes nothing unless
 `SEED_ADMIN_PASSWORD` is offered again, which is how a lost password is replaced.
