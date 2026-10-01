@@ -65,20 +65,28 @@ jobs:
       # SELF_SIGNED_CERT_IN_CHAIN.
       #
       # A missing secret is otherwise indistinguishable from a wrong one in the
-      # log: `DATABASE_CA_CERT` expands to an empty string, `resolveSsl` falls
+      # log: DATABASE_CA_CERT expands to an empty string, resolveSsl falls
       # through to the DATABASE_SSL branch, and the connection is attempted
       # against the host trust store before it can be reported as unverifiable.
       # The error names a certificate, which sends the reader looking for a
       # certificate problem they do not have.
+      #
+      # The test is in the shell, not in `if:`. The `secrets` context is not
+      # available to a step-level `if`, and referencing it there makes the whole
+      # workflow file invalid — GitHub then rejects the run before a single step
+      # starts, reporting "likely failed because of a workflow file issue" and
+      # no log at all. DATABASE_CA_CERT is already in this job's env, so the
+      # shell can read it directly and the secret is never echoed.
       - name: Refuse to run without the CA certificate
-        if: ${{ secrets.DATABASE_CA_CERT == '' }}
         run: |
-          echo "::error::DATABASE_CA_CERT is not set on this repository."
-          echo "The session pooler presents a certificate signed by Supabase's own CA,"
-          echo "which the runner's trust store cannot verify. Set the secret to the PEM"
-          echo "from Supabase Dashboard -> Database -> SSL Configuration (pooler"
-          echo "connections). A CA certificate is public, so it is safe as a secret."
-          exit 1
+          if [ -z "${DATABASE_CA_CERT:-}" ]; then
+            echo "::error::DATABASE_CA_CERT is not set on this repository."
+            echo "The session pooler presents a certificate signed by Supabase's own CA,"
+            echo "which the runner's trust store cannot verify. Set the secret to the PEM"
+            echo "from Supabase Dashboard -> Database -> SSL Configuration (pooler"
+            echo "connections). A CA certificate is public, so it is safe as a secret."
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
