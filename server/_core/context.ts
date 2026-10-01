@@ -34,22 +34,11 @@ export type TrpcResponse = {
 /**
  * `user` is the request identity and is returned to the client by `auth.me`, so
  * it is typed as AuthenticatedUser, which excludes the stored credential.
- *
- * `refusal` is why `user` is null when the caller did present a session, and is
- * null whenever there was no session or the session was good. It exists because
- * `auth.me` returning null cannot tell an anonymous visitor from an officer who
- * signed in correctly and is waiting to be approved — and to the second person
- * those look identical: a sign-in form that will not accept them.
- *
- * Optional rather than required so the many places that build a context by hand,
- * chiefly the tests, do not all have to state it. Absent and null mean the same
- * thing, which is also what every reader wants.
  */
 export type TrpcContext = {
   req: TrpcRequest;
   res: TrpcResponse;
   user: AuthenticatedUser | null;
-  refusal?: string | null;
 };
 
 /**
@@ -65,7 +54,6 @@ export async function createContext(
   req: TrpcRequest
 ): Promise<TrpcContextWithCookies> {
   let user: AuthenticatedUser | null = null;
-  let refusal: string | null = null;
 
   try {
     user = await authenticateSupabaseRequest();
@@ -75,29 +63,11 @@ export async function createContext(
     // a deployment with no Supabase configuration fails here on every request,
     // and a silent `user = null` would present that as "everyone is signed out"
     // instead of "this deployment is misconfigured".
-    console.warn(
-      "[Auth] Could not resolve the Supabase session:",
-      String(error)
-    );
-    // Kept, so the sign-in screen can say what happened instead of showing a
-    // form to somebody who has already proved who they are.
-    //
-    // `error.message` rather than `String(error)`: the latter prefixes "Error: ",
-    // which would make the pattern below never match and silently discard every
-    // refusal. Only the human-readable messages are kept — the ones thrown for a
-    // misconfigured deployment are operator-facing, and those belong in the log,
-    // not on an officer's screen.
-    const message = error instanceof Error ? error.message : String(error);
-    refusal =
-      /^(Your account is awaiting approval|This account has been deactivated|This account has not been set up)/.test(
-        message
-      )
-        ? message
-        : null;
+    console.warn("[Auth] Could not resolve the Supabase session:", String(error));
     user = null;
   }
 
-  return { ...createContextFromUser(req, user), refusal };
+  return createContextFromUser(req, user);
 }
 
 /**

@@ -2,7 +2,6 @@
 
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -208,14 +207,6 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const { isAuthenticated, loading } = useAuth();
-  // Null unless the server refused a session the browser holds — an account
-  // awaiting approval, or one that has been deactivated. Null for an ordinary
-  // anonymous visitor, which is why this is a second query rather than a
-  // variant of `auth.me`: most people reaching this screen have no session, and
-  // the answer they need is the form.
-  const refusal = trpc.auth.refusal.useQuery(undefined, {
-    enabled: !isAuthenticated && !loading,
-  }).data;
   const next = params.get("next") ?? undefined;
 
   // An already-signed-in officer arriving here is sent on. This is a client
@@ -309,47 +300,6 @@ function LoginForm() {
 
   if (loading || isAuthenticated) {
     return <PageLoader label="Checking your session" />;
-  }
-
-  // Signed in with Supabase, and refused by us.
-  //
-  // Reached because a successful sign-in does not mean an account: the row
-  // behind the session may be pending approval, and a deactivated officer lands
-  // here too. Both were redirected here by `useAuth`, and without this they are
-  // shown a sign-in form that will not accept them — which reads as a wrong
-  // password, the one thing the evidence does not support.
-  if (refusal) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6">
-        <div
-          className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]"
-          style={PALETTE as React.CSSProperties}
-        >
-          <h2 className="text-2xl font-bold text-[var(--login-ink)]">
-            Not quite yet
-          </h2>
-          <p className="mt-4 text-[15px] leading-6 text-[var(--login-body)]">
-            {refusal}
-          </p>
-          <p className="mt-4 text-[13px] leading-6 text-[var(--login-muted)]">
-            You are signed in. There is nothing to do here until an
-            administrator approves your account.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-8 w-full"
-            onClick={() => {
-              void getSupabaseBrowserClient()
-                .auth.signOut()
-                .finally(() => window.location.assign("/login"));
-            }}
-          >
-            Sign out
-          </Button>
-        </div>
-      </main>
-    );
   }
 
   if (!isSupabaseConfigured) {
