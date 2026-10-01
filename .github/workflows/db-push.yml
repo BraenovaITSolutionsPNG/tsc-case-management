@@ -5,12 +5,19 @@
 # the same whoever pushes. A GitHub runner is the same on every machine, which
 # settles both.
 #
-# DATABASE_URL must be the *direct* connection (Supabase's 5432), not the session
-# pooler on 6543. DDL runs in a transaction and the pooler discards the backend
-# between transactions, so a migration sent through the pooler fails partway
-# through with the schema half applied.
+# DATABASE_URL must be the *session* pooler (aws-<region>.pooler.supabase.com on
+# 5432), and not either of the alternatives, for two separate reasons:
 #
-# Secrets: DATABASE_URL, a repository secret holding that 5432 string.
+#   - Not the direct host (db.<ref>.supabase.co:5432). It publishes only an AAAA
+#     record, the hosted runner has no IPv6 route, and the connection dies with
+#     ENETUNREACH before a statement runs.
+#   - Not the transaction pooler on 6543. DDL runs in a transaction and that mode
+#     hands the backend back between transactions, so a migration sent through it
+#     fails partway with the schema half applied.
+#
+# Secrets: DATABASE_URL, a repository secret holding that session-pooler string,
+# and DATABASE_CA_CERT, the PEM the pooler's certificate chains to. Both are
+# required; the reasons are on the env block below.
 name: db push
 on:
   workflow_dispatch:
@@ -33,10 +40,25 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     env:
+      # The *session* pooler, not the direct host. The direct host
+      # (db.<ref>.supabase.co:5432) publishes only an AAAA record, and the hosted
+      # runner has no IPv6 route, so a migration sent there fails with
+      # ENETUNREACH before a single statement runs. The pooler host is IPv4 and
+      # session mode holds the backend for the life of the connection, which is
+      # what DDL needs.
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      # Supabase's certificate chains to a public CA, so the host trust store
-      # verifies it and no CA file is needed. Named here so the one thing that
-      # would have to change if that ever stops being true is visible.
+      # The pooler presents a certificate signed by Supabase's own CA, not a
+      # public one, so the runner's trust store cannot verify it and the
+      # connection fails with SELF_SIGNED_CERT_IN_CHAIN. DATABASE_CA_CERT is what
+      # fixes that: databaseConnection.ts verifies against exactly this
+      # certificate, and it is passed to `migrate` and `db:verify` alike through
+      # that one module. Set it to the CA from Dashboard -> Database -> SSL
+      # Configuration, as the PEM itself — a path does not exist on a runner.
+      DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
+      # Only consulted when DATABASE_CA_CERT is empty, and it is the weaker of the
+      # two: it verifies against the host trust store, which is correct for a
+      # public-CA certificate and is not correct for the pooler. Left named so the
+      # fallback is visible rather than silent.
       DATABASE_SSL: require
     steps:
       - uses: actions/checkout@v4
