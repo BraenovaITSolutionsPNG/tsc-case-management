@@ -10,7 +10,7 @@ type CookieCall = {
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createAuthContext(): {
+function createAuthContext(headers: Record<string, string> = {}): {
   ctx: TrpcContext;
   clearedCookies: CookieCall[];
 } {
@@ -30,7 +30,7 @@ function createAuthContext(): {
   };
 
   const ctx = createContextFromUser(
-    { protocol: "https", headers: {} },
+    { protocol: "https", headers },
     user
   );
 
@@ -115,6 +115,27 @@ describe("auth.logout", () => {
 
     expect(result).toEqual({ success: true });
     expect(clearedCookies).toHaveLength(1);
+  });
+
+  it("clears Supabase cookies present in request headers", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://project.supabase.co");
+    vi.stubEnv("SUPABASE_ANON_KEY", "anon-test-key");
+
+    vi.doMock("./_core/supabaseAuth", async importOriginal => ({
+      ...(await importOriginal<typeof import("./_core/supabaseAuth")>()),
+      createServerClient: vi.fn().mockRejectedValue(new Error("network down")),
+    }));
+
+    const { appRouter: freshRouter } = await import("./routers");
+    const { ctx, clearedCookies } = createAuthContext({
+      cookie: "sb-projectref-auth-token=xyz; app_session_id=123",
+    });
+
+    const result = await freshRouter.createCaller(ctx).auth.logout();
+
+    expect(result).toEqual({ success: true });
+    expect(clearedCookies.map(c => c.name)).toContain("sb-projectref-auth-token");
+    expect(clearedCookies.map(c => c.name)).toContain("app_session_id");
   });
 });
 

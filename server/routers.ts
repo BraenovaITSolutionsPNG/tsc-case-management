@@ -513,10 +513,29 @@ export const appRouter = router({
       // Explicit removal of the session cookies as well, in case the client
       // above could not run. Best effort: a cookie that was never set is not an
       // error to report.
+      const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, {
-        ...getSessionCookieOptions(ctx.req),
+        ...cookieOptions,
         maxAge: -1,
       });
+
+      const rawCookieHeader = ctx.req.headers.cookie;
+      if (typeof rawCookieHeader === "string") {
+        const cookiePairs = rawCookieHeader.split(";");
+        for (const pair of cookiePairs) {
+          const cookieName = pair.split("=")[0]?.trim();
+          if (
+            cookieName &&
+            (cookieName.startsWith("sb-") || cookieName === COOKIE_NAME)
+          ) {
+            ctx.res.clearCookie(cookieName, {
+              ...cookieOptions,
+              maxAge: -1,
+            });
+          }
+        }
+      }
+
       return { success: true } as const;
     }),
   }),

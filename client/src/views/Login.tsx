@@ -211,7 +211,7 @@ function Illustration() {
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, logout } = useAuth();
   // Null unless the server refused a session the browser holds: an identity
   // with no register row, or an account that has been deactivated. Null for an
   // ordinary anonymous visitor, which is why this is a second query rather than
@@ -220,6 +220,27 @@ function LoginForm() {
   const refusal = trpc.auth.refusal.useQuery(undefined, {
     enabled: !isAuthenticated && !loading,
   }).data;
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      try {
+        await logout();
+      } catch (e) {
+        console.warn("[Auth] Server logout failed on refusal screen:", e);
+      }
+      try {
+        if (isSupabaseConfigured) {
+          await getSupabaseBrowserClient().auth.signOut();
+        }
+      } catch (e) {
+        console.warn("[Auth] Supabase browser sign-out failed:", e);
+      }
+    } finally {
+      window.location.assign("/login");
+    }
+  };
   const next = params.get("next") ?? undefined;
 
   // An already-signed-in officer arriving here is sent on. This is a client
@@ -367,13 +388,10 @@ function LoginForm() {
             type="button"
             variant="outline"
             className="mt-8 w-full"
-            onClick={() => {
-              void getSupabaseBrowserClient()
-                .auth.signOut()
-                .finally(() => window.location.assign("/login"));
-            }}
+            disabled={signingOut}
+            onClick={handleSignOut}
           >
-            Sign out
+            {signingOut ? "Signing out…" : "Sign out"}
           </Button>
         </div>
       </main>
