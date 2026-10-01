@@ -7,12 +7,13 @@
 --
 -- The password below is the development default and must match DATABASE_URL in
 -- .env. It is deliberately not a secret: this file exists so a developer can
--- reproduce the local database, not to hold production credentials. Use a
--- generated secret and an environment-injected password for any real deployment.
+-- stand up a throwaway PostgreSQL of their own, not to hold production
+-- credentials. Use a generated secret and an environment-injected password for
+-- any real deployment.
 --
 -- Verified against PostgreSQL 17.
 
--- The database itself is created by the container's POSTGRES_DB, which runs
+-- The database itself is created by whatever server you point it at, which runs
 -- before this file. What is left is the role the application connects as, which
 -- is kept separate from the superuser so the app cannot create databases, roles
 -- or extensions.
