@@ -23,6 +23,7 @@
 import { cookies } from "next/headers";
 import { createServerClient as createSupabaseServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
+import { isSupabaseUrl, supabaseUrlFault } from "@shared/supabaseUrl";
 import { ENV } from "./env";
 
 /**
@@ -33,9 +34,16 @@ import { ENV } from "./env";
  * app's own session cookie would then be the only thing standing between an
  * anonymous visitor and the case register. So the answer is reported rather
  * than substituted, and the caller decides what to do about it.
+ *
+ * "Given Supabase" means present *and* usable, and the two are not the same
+ * thing. A URL that is set to something supabase-js will reject — a pasted
+ * export with its quotes still attached, an unfilled placeholder — is present,
+ * passes a truthiness check, and makes every deployment-looks-fine query in the
+ * codebase answer yes right up until an officer tries to sign in. Answering no
+ * here instead is what gets it reported as the misconfiguration it is.
  */
 export function isSupabaseConfigured(): boolean {
-  return Boolean(ENV.supabaseUrl && ENV.supabaseAnonKey);
+  return Boolean(ENV.supabaseAnonKey && isSupabaseUrl(ENV.supabaseUrl));
 }
 
 export function isSupabaseAdminConfigured(): boolean {
@@ -61,6 +69,17 @@ export function isSupabaseAdminConfigured(): boolean {
  * instead.
  */
 export function supabasePublicConfig(): { url: string; anonKey: string } {
+  // Shape before presence, because the two faults have different fixes and the
+  // shape one is the more specific: an unset variable is obviously unset, while
+  // a present value that is not a URL looks correct everywhere it can be
+  // inspected and is the one that needs the value quoted back at the operator.
+  const urlFault = supabaseUrlFault(
+    ENV.supabaseUrl,
+    "SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL"
+  );
+  if (urlFault) {
+    throw new Error(urlFault);
+  }
   if (!isSupabaseConfigured()) {
     throw new Error(
       "Supabase is not configured on this deployment. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (or SUPABASE_URL and SUPABASE_ANON_KEY) — without them there is nowhere to sign in against."
