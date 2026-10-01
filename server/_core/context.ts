@@ -88,12 +88,14 @@ export async function createContext(
     //
     // `error.message` rather than `String(error)`: the latter prefixes
     // "Error: ", which would make the pattern below never match and silently
-    // discard every refusal while still logging it. Only the officer-facing
-    // messages are carried — the ones thrown for a misconfigured deployment are
-    // operator-facing, and those belong in the log, not on a screen.
+    // discard every refusal while still logging it. The database fault is in
+    // the pattern too, and it is the one that must not be dropped: it is the
+    // refusal an officer sees when the platform is broken rather than when they
+    // are, and showing them the sign-in form again is the misreading this whole
+    // mechanism exists to prevent.
     const message = error instanceof Error ? error.message : String(error);
     refusal =
-      /^(This account has not been set up|This account has been deactivated)/.test(
+      /^(This account has not been set up|This account has been deactivated|The platform cannot reach its database)/.test(
         message
       )
         ? message

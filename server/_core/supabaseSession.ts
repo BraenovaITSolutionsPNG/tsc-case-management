@@ -46,9 +46,27 @@ export type AuthenticatedUser = Omit<User, "passwordHash"> & {
  * effect immediately instead of at token expiry. It also means a refreshed
  * access token is written back through the cookie adapter as a side effect, so
  * the session survives without this app handling a token.
+ *
+ * The database is asked whether it is there at all before it is asked who the
+ * caller is, and that ordering is the whole of the fourth case. A platform that
+ * cannot reach its database has no opinion about anybody's account, and
+ * `getUserByAuthUserId` answers `undefined` for a missing database and for a
+ * missing row alike — so without this check an unreachable database presents as
+ * "this account has not been set up", which sends the operator to create an
+ * account that already exists while the officer is told the account is the
+ * problem. The two faults have opposite fixes and neither symptom points at the
+ * right one.
  */
 export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser | null> {
-  const { getUserByAuthUserId, touchLastSignedIn } = await import("../db");
+  const { getDb, getUserByAuthUserId, touchLastSignedIn } = await import(
+    "../db"
+  );
+
+  if (!(await getDb())) {
+    throw new Error(
+      "The platform cannot reach its database, so your account could not be checked. Nothing is wrong with your account — try again shortly, and tell the platform administrator if it continues."
+    );
+  }
 
   const supabase = await createServerClient();
   const { data, error } = await supabase.auth.getUser();
