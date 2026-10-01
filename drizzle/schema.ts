@@ -131,6 +131,26 @@ export const users = pgTable("users", {
   avatarKey: varchar("avatarKey", { length: 255 }),
   // Deactivated accounts keep their history but can no longer sign in.
   isActive: boolean("isActive").default(true).notNull(),
+  /**
+   * Signed up, not yet approved to use the platform.
+   *
+   * Supabase owns sign-in and anyone may create an identity there, so this is
+   * what stands between a stranger and the case register. It is a separate flag
+   * from `isActive` rather than being expressed as `isActive = false` because the
+   * two mean opposite things to the person on the other side:
+   *
+   *   - pending     — "an administrator has not approved you yet". Approving it
+   *                    is routine and expected.
+   *   - deactivated — "you were set up and then your access was withdrawn".
+   *
+   * A single flag cannot tell those apart, and an officer locked out of a
+   * disciplinary register deserves to be told which one has happened.
+   *
+   * Set only by the sign-in path and cleared by `approveUser`. It gates nothing
+   * at the database level — the request path reads it, so a row with it set is
+   * unreachable however it is queried.
+   */
+  pendingApproval: boolean("pendingApproval").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdateFn(() => new Date()),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

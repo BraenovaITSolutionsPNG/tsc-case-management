@@ -70,6 +70,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Check,
   Plus,
   Pencil,
   RefreshCw,
@@ -183,6 +184,13 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
     onError: e => toast.error(e.message),
   });
   const setActiveMutation = trpc.admin.users.setActive.useMutation({
+    onSuccess: () => void invalidateUserWrites(utils),
+    onError: e => toast.error(e.message),
+  });
+  // Approval for an account that signed itself up. The only account-management
+  // action that does not touch Supabase at all, which is why the deployment can
+  // hold no service-role key.
+  const approveMutation = trpc.admin.users.approve.useMutation({
     onSuccess: () => void invalidateUserWrites(utils),
     onError: e => toast.error(e.message),
   });
@@ -413,6 +421,15 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                                   You
                                 </Badge>
                               ) : null}
+                              {/* Self-registered and not yet approved. Reads as
+                                an outstanding action rather than a fault, which
+                                is what it is — so it is on the name and not
+                                only in the button that clears it. */}
+                              {user.isPending ? (
+                                <Badge className="border-amber-300 bg-amber-50 text-amber-800">
+                                  Awaiting approval
+                                </Badge>
+                              ) : null}
                               {/* Deactivated accounts keep their row but read as
                                 closed, so the state is on the name rather than
                                 only in the button that would undo it. */}
@@ -437,7 +454,9 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                                   id={`username-${user.id}`}
                                   name="username"
                                   value={usernameDraft}
-                                  onChange={e => setUsernameDraft(e.target.value)}
+                                  onChange={e =>
+                                    setUsernameDraft(e.target.value)
+                                  }
                                   className="h-8 font-mono text-[12px]"
                                   autoFocus
                                 />
@@ -602,24 +621,51 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                               >
                                 <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
                               </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={setActiveMutation.isPending}
-                                onClick={() =>
-                                  setActiveMutation.mutate(
-                                    { id: user.id, isActive: !user.isActive },
-                                    {
-                                      onSuccess: () =>
-                                        toast.success(
-                                          `${user.name} ${user.isActive ? "deactivated" : "reactivated"}`
-                                        ),
-                                    }
-                                  )
-                                }
-                              >
-                                {user.isActive ? "Deactivate" : "Reactivate"}
-                              </Button>
+                              {/* Approval replaces Deactivate while an account
+                                is pending, rather than sitting beside it. Two
+                                actions on one row that both change whether this
+                                person can sign in is a screen where the wrong
+                                one gets clicked; the pending state has exactly
+                                one sensible next step. */}
+                              {user.isPending ? (
+                                <Button
+                                  size="sm"
+                                  disabled={approveMutation.isPending}
+                                  onClick={() =>
+                                    approveMutation.mutate(
+                                      { id: user.id },
+                                      {
+                                        onSuccess: () =>
+                                          toast.success(
+                                            `${user.name} approved. They can sign in as ${ROLE_LABELS[user.role]}.`
+                                          ),
+                                      }
+                                    )
+                                  }
+                                >
+                                  <Check className="mr-1.5 h-3.5 w-3.5" />{" "}
+                                  Approve
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={setActiveMutation.isPending}
+                                  onClick={() =>
+                                    setActiveMutation.mutate(
+                                      { id: user.id, isActive: !user.isActive },
+                                      {
+                                        onSuccess: () =>
+                                          toast.success(
+                                            `${user.name} ${user.isActive ? "deactivated" : "reactivated"}`
+                                          ),
+                                      }
+                                    )
+                                  }
+                                >
+                                  {user.isActive ? "Deactivate" : "Reactivate"}
+                                </Button>
+                              )}
                             </div>
                           </DenseCell>
                         </DenseRow>
@@ -1174,11 +1220,15 @@ function OversightTab() {
                 href="#"
                 aria-disabled={currentPage <= 1}
                 className={
-                  currentPage <= 1 ? "pointer-events-none opacity-50" : undefined
+                  currentPage <= 1
+                    ? "pointer-events-none opacity-50"
+                    : undefined
                 }
                 onClick={event => {
                   event.preventDefault();
-                  setPage(clampPage(currentPage - 1, total, OVERSIGHT_PAGE_SIZE));
+                  setPage(
+                    clampPage(currentPage - 1, total, OVERSIGHT_PAGE_SIZE)
+                  );
                 }}
               />
             </PaginationItem>
@@ -1199,7 +1249,9 @@ function OversightTab() {
                 }
                 onClick={event => {
                   event.preventDefault();
-                  setPage(clampPage(currentPage + 1, total, OVERSIGHT_PAGE_SIZE));
+                  setPage(
+                    clampPage(currentPage + 1, total, OVERSIGHT_PAGE_SIZE)
+                  );
                 }}
               />
             </PaginationItem>

@@ -25,21 +25,26 @@ export type AuthenticatedUser = Omit<User, "passwordHash"> & {
 /**
  * Resolves the caller from the Supabase session cookie on this request.
  *
- * The order of the three checks below is the whole of the authorization story
- * for a request, and it is deliberately the other way round from a naive
- * implementation:
+ * The order of the checks below is the whole of the authorization story for a
+ * request:
  *
  *  1. No session is not an error. Public procedures must work for an anonymous
  *     visitor, so `null` is a valid answer and the caller decides.
- *  2. A session with no local user row is refused. Under the previous
- *     arrangement an unknown session was auto-provisioned from the identity
- *     provider, which meant anyone who could present a token became a row in
- *     the register. Accounts are created by an administrator now, so a session
- *     with no row is a session for somebody who was never set up.
- *  3. `isActive` is checked here, and not in a guard. A deactivated officer may
+ *  2. A session with no register row creates one, locked. Supabase owns sign-up,
+ *     so an unknown identity is not an anomaly to refuse but a person who signed
+ *     up. The row it writes carries `pendingApproval`, and step 3 refuses it, so
+ *     the register stays closed to strangers — while an administrator gets a
+ *     queue to approve rather than a stream of people who cannot get in.
+ *  3. `pendingApproval` is checked before `isActive`, because it is the more
+ *     specific answer: "not approved yet" and "access withdrawn" send somebody
+ *     to their administrator for opposite reasons.
+ *  4. `isActive` is checked here, and not in a guard. A deactivated officer may
  *     hold a perfectly valid, unexpired session; the account has to be refused
  *     on every request, and the one place that cannot be forgotten is the one
  *     that builds the identity.
+ *
+ * Every refusal throws rather than returning null, so it surfaces to the officer
+ * as a message on the screen they are already looking at.
  *
  * `getUser` revalidates against Supabase on every call rather than trusting the
  * cookie's contents, which is what makes deleting or disabling an account take
@@ -48,7 +53,8 @@ export type AuthenticatedUser = Omit<User, "passwordHash"> & {
  * the session survives without this app handling a token.
  */
 export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser | null> {
-  const { getUserByAuthUserId, touchLastSignedIn } = await import("../db");
+  const { getUserByAuthUserId, createPendingUser, touchLastSignedIn } =
+    await import("../db");
 
   const supabase = await createServerClient();
   const { data, error } = await supabase.auth.getUser();
@@ -57,12 +63,43 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
 
   const user = await getUserByAuthUserId(data.user.id);
 
+  // First sign-in. The identity is new, so there is no row, and one is created
+  // locked rather than refused outright.
+  //
+  // This is the arrangement where Supabase owns sign-in completely: accounts
+  // appear because somebody signed up, and no service-role key is needed to
+  // record them — an INSERT on the application's own connection, which is what
+  // lets the deployment stop holding a key that bypasses RLS.
+  //
+  // It does not open the register. The row created carries `pendingApproval`,
+  // the refusal below fires on it, and until an administrator clears that flag
+  // the account reaches nothing at all. What changes from the previous
+  // arrangement is only what the refusal is *about*: before, a session with no
+  // row was somebody who had not been set up and could not self-recover; now it
+  // is an account awaiting approval, and the queue of them is what an
+  // administrator works through.
   if (!user) {
-    // Accounts are provisioned by an administrator from the admin screen. A
-    // valid Supabase session with no matching row is not an invitation to
-    // create one.
+    await createPendingUser({
+      authUserId: data.user.id,
+      email: data.user.email ?? null,
+      // `full_name` is what the app itself puts in user_metadata; the fallbacks
+      // are what a Supabase-hosted sign-up form produces.
+      name:
+        (data.user.user_metadata?.full_name as string | undefined) ??
+        (data.user.user_metadata?.name as string | undefined) ??
+        null,
+    });
     throw new Error(
-      "This account has not been set up for the case management platform. Contact an administrator."
+      "Your account is awaiting approval. An administrator has to approve it before you can use the case register."
+    );
+  }
+
+  // Checked before `isActive` because it is the more specific answer, and an
+  // account that is both pending and deactivated is one an administrator
+  // deactivated while it was still in the queue.
+  if (user.pendingApproval) {
+    throw new Error(
+      "Your account is awaiting approval. An administrator has to approve it before you can use the case register."
     );
   }
 
