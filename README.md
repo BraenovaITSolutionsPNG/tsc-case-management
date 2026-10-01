@@ -119,6 +119,30 @@ If it fails with `Network is unreachable` while HTTPS to supabase.com works, tha
 is an egress firewall on outbound Postgres ports, not a bad credential. Use the
 workflow, or the local database below.
 
+### Applying the schema without a connection (Supabase SQL Editor)
+
+If neither route is available — no CA certificate to hand, a network that blocks
+Postgres, or a machine with no IPv6 route to the direct host — the dashboard's SQL
+Editor needs no connection string, no certificate and no secret:
+
+```bash
+pnpm db:sql                     # writes database/schema-apply.sql
+open database/schema-apply.sql  # select all, paste into SQL Editor -> Run
+```
+
+It concatenates `drizzle/*.sql` in journal order, with the same verification
+queries `db:verify` makes appended at the end. Read the output: five tables, all
+`rls_enabled = t`, `policies_should_be_zero = 0`, `has_authuserid = t`,
+`has_passwordhash_must_be_false = f`.
+
+This is the fallback rather than the preferred route, and the difference is worth
+stating. The SQL Editor applies DDL as whoever is signed into the dashboard and
+records nothing, so a database built this way has no rows in
+`drizzle.__drizzle_migrations` and `drizzle-kit migrate` will later try to
+re-apply everything from `0000`. Every statement is either guarded or fails on
+"already exists", so that is noisy rather than harmful — but the CI route is
+preferred wherever it works, because it leaves a record of what it applied.
+
 ### A local database, for working offline
 
 ```bash
