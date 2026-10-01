@@ -33,8 +33,13 @@ const nextConfig: NextConfig = {
     ".manusvm.computer",
   ],
 
-  eslint: { ignoreDuringBuilds: true },
-
+  // No `eslint` key. Next 16 removed support for it and warns on every build
+  // that it is present, which is the worst kind of warning: it trains you to
+  // ignore the output of the build. It was only ever here to skip linting, and
+  // there is nothing to skip — eslint is not a dependency and there is no config,
+  // so `next lint` has never run in this project. Type errors are not ignored
+  // (`typescript.ignoreBuildErrors` below is false), which is the check that does
+  // run.
   typescript: { ignoreBuildErrors: false },
 };
 

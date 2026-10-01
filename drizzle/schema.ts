@@ -95,17 +95,26 @@ export const users = pgTable("users", {
    * employee references, and a person should not have to remember which of
    * their addresses this system knows them by.
    *
-   * Nullable: an account created by the identity provider on first sign-in has
-   * never picked one, and the provider remains its way in.
+   * Nullable: an account provisioned by an administrator has not necessarily
+   * been given one.
    */
   username: varchar("username", { length: 64 }).unique(),
   /**
-   * Local credential for the username-and-password sign-in. Null means the
-   * account signs in through the identity provider only, which is the normal
-   * production path - this exists so the platform can be exercised and
-   * demonstrated without one. See server/_core/localAuth.ts.
+   * The Supabase `auth.users.id` this row belongs to, and the link between the
+   * two systems.
+   *
+   * Not the same thing as `id`: the register refers to officers by `id`, and
+   * those references must not move when the identity layer is replaced. This is
+   * the join that survives such a change. Unique, because one Supabase identity
+   * is one officer - a duplicate here would mean the same person appearing twice
+   * in the register, with two histories and two sets of permissions.
+   *
+   * Nullable so the column can be added before the identities exist and so a
+   * row can be created and the Supabase account set up after it. Null is never
+   * a sign-inable state: `authenticateSupabaseRequest` looks the user up *by*
+   * this column, so a null row is simply unreachable.
    */
-  passwordHash: varchar("passwordHash", { length: 255 }),
+  authUserId: varchar("authUserId", { length: 36 }).unique(),
   // No teacher tier: the manual routes every matter through the Provincial
   // Matters office, so a teacher never signs in. See ROLE_VALUES in
   // shared/roles.ts for the reasoning.

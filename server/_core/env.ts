@@ -1,12 +1,81 @@
+/**
+ * Where this deployment's configuration comes from, read once at import.
+ *
+ * The authentication half of this file is the part worth reading: Supabase owns
+ * credentials and sessions, and this deployment holds no signing key of its own.
+ * The app used to mint and verify its own session cookie from `JWT_SECRET`,
+ * which meant the ability to authenticate anybody sat in this codebase. It now
+ * asks Supabase who the caller is.
+ */
+
+/**
+ * The project URL, from whichever name it was supplied under.
+ *
+ * Two names, and they are not redundant. `NEXT_PUBLIC_SUPABASE_URL` is the one
+ * the browser bundle reads (`client/src/lib/supabase.ts`), and Next inlines it
+ * at *build* time. `SUPABASE_URL` is the server-side reading of the same value,
+ * settable at *run* time. So the two names answer different questions — "what
+ * was the browser built with" and "what does this process talk to" — and a
+ * deployment can legitimately answer them from different environment variables.
+ *
+ * They must not answer them *differently*, though: a server on one project with
+ * a browser built for another produces a sign-in form that submits to a project
+ * that has no such user, and the failure surfaces as "invalid login
+ * credentials" for an officer who typed them correctly.
+ *
+ * So the server's own name wins here and the browser's is kept separately, which
+ * is what makes that disagreement detectable at all. The order matters: had the
+ * browser's name been preferred, this value would always equal the browser's and
+ * the check in `supabasePublicConfig` could never fire — a guard that looks
+ * present and is not worse than none, because it is read as covered.
+ *
+ * The trailing-slash trim is because Supabase's dashboard copies the URL with
+ * one and without, and both appear in connection strings people paste.
+ */
+const supabaseUrl = (
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  ""
+).replace(/\/+$/, "");
+
+const supabaseAnonKey =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "";
+
 export const ENV = {
-  // Vite exposed client-visible config as VITE_*; Next only inlines
-  // NEXT_PUBLIC_* into the browser bundle, so the server reads the same names.
-  appId: process.env.NEXT_PUBLIC_APP_ID ?? process.env.VITE_APP_ID ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "",
+  appId: process.env.NEXT_PUBLIC_APP_ID ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-  ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
+
+  /**
+   * The anon key is public by design — it is meant to reach the browser, and it
+   * is what row level security is there to constrain. The service role key is
+   * the opposite: it bypasses RLS entirely, so it is never given the
+   * `NEXT_PUBLIC_` prefix that would inline it into a bundle anyone can
+   * download, and is passed only to `createAdminClient`.
+   *
+   * Neither is a credential in the sense of being secret, and neither should be
+   * treated as one in a `.env` that is excluded from git anyway: the thing that
+   * must not leak is the *service* key, and it is the only one of the three
+   * without a public prefix.
+   */
+  supabaseUrl,
+  supabaseAnonKey,
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+
+  /**
+   * The values the browser bundle was compiled with, kept so the mismatch above
+   * can be detected. On the server, `process.env.NEXT_PUBLIC_*` is the literal
+   * the bundler substituted, not the current environment — which is exactly what
+   * is needed here: this is the build's answer, compared against the runtime's.
+   */
+  publicSupabaseUrl: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(
+    /\/+$/,
+    ""
+  ),
+  publicSupabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   /**
@@ -27,10 +96,4 @@ export const ENV = {
   get useLocalStorage() {
     return !this.isProduction && !this.forgeApiUrl;
   },
-  // Local development only. The Manus OAuth portal is unreachable from a dev
-  // machine, so /api/dev/login mints a session straight from these instead.
-  devLoginOpenId: process.env.DEV_LOGIN_OPEN_ID ?? "",
-  devLoginName: process.env.DEV_LOGIN_NAME ?? "",
-  devLoginEmail: process.env.DEV_LOGIN_EMAIL ?? "",
-  devLoginRole: process.env.DEV_LOGIN_ROLE ?? "",
 };

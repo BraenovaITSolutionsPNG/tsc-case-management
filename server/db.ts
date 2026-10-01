@@ -19,10 +19,8 @@ import {
   referrals,
   type Case,
   type InsertCase,
-  type InsertUser,
   users,
 } from "../drizzle/schema";
-import { ENV } from "./_core/env";
 import { databaseCredentials, describeTls } from "./_core/databaseConnection";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -91,69 +89,40 @@ export function isDatabaseConfigured() {
   return Boolean(process.env.DATABASE_URL);
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("User openId is required for upsert");
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  const values: InsertUser = { openId: user.openId };
-  const updateSet: Record<string, unknown> = {};
-  const textFields = ["name", "email", "loginMethod"] as const;
-  for (const field of textFields) {
-    if (user[field] !== undefined) {
-      values[field] = user[field] ?? null;
-      updateSet[field] = user[field] ?? null;
-    }
-  }
-  if (user.lastSignedIn !== undefined) {
-    values.lastSignedIn = user.lastSignedIn;
-    updateSet.lastSignedIn = user.lastSignedIn;
-  }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
-  }
-  values.lastSignedIn ??= new Date();
-  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
-
-  // `onConflictDoUpdate` keyed on `openId`, which is the unique constraint this
-  // upsert has always meant. MySQL's `onDuplicateKeyUpdate` had no conflict
-  // target and relied on any unique key being violated; PostgreSQL requires the
-  // column to be named, because "any unique constraint" is not a statement it
-  // can act on without inspecting the table first.
-  await db
-    .insert(users)
-    .values(values)
-    .onConflictDoUpdate({
-      target: users.openId,
-      set: updateSet,
-    });
-}
-
 /**
- * The user behind a session. This row becomes `ctx.user`, which the client reads
- * through `auth.me`, so the stored credential is stripped here rather than at
- * each call site: a raw select would hand the password hash to the browser on
- * every request. Anything that genuinely needs the hash reads it through
- * `getUserByLocalUsername`, which is only ever called server-side.
+ * The user behind a Supabase session. This row becomes `ctx.user`, which the
+ * client reads through `auth.me`.
+ *
+ * There is no longer a stored credential to strip on the way out. That strip
+ * existed because a raw select would have handed the password hash to the
+ * browser on every request; Supabase holds the credential in `auth.users` and
+ * never discloses it, so the column is gone and the hazard went with it. See
+ * server/_core/supabaseSession.ts for the lookup's place in the request path.
  */
-export async function getUserByOpenId(openId: string) {
+export async function getUserByAuthUserId(authUserId: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db
     .select()
     .from(users)
-    .where(eq(users.openId, openId))
+    .where(eq(users.authUserId, authUserId))
     .limit(1);
-  if (!result[0]) return undefined;
-  const { passwordHash: _hash, ...safe } = result[0];
-  return safe;
+  return result[0];
+}
+
+/**
+ * Records that an officer was active just now.
+ *
+ * Split out of the session lookup because it is the one write on the
+ * authentication path, and it is a write to an audit column rather than to the
+ * identity. Doing it by primary key matters: an upsert here would resurrect a
+ * row that had been deleted in between, on the strength of a cookie that is
+ * still valid until it expires.
+ */
+export async function touchLastSignedIn(id: number, at: Date): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: at }).where(eq(users.id, id));
 }
 
 export type CaseListFilters = {
@@ -980,58 +949,16 @@ export async function listUsers() {
   if (!db) return [];
   const rows = await db.select().from(users).orderBy(users.role, users.name);
   return Promise.all(
-    rows.map(async ({ passwordHash, ...rest }) => ({
-      ...rest,
-      hasPassword: Boolean(passwordHash),
-      references: await getUserReferences(rest.id),
+    rows.map(async (row) => ({
+      ...row,
+      // Whether this officer can sign in at all, for the admin screen. Reads
+      // `authUserId` rather than a stored hash: the column is the sign-inable
+      // state, and a hash's presence was never evidence of anything but that
+      // one had been set.
+      isProvisioned: Boolean(row.authUserId),
+      references: await getUserReferences(row.id),
     }))
   );
-}
-
-/**
-/**
- * Resolve a typed username to an account, including the stored credential.
- *
- * The explicit `username` column is the real answer. Two fallbacks are kept so
- * accounts provisioned before usernames existed still sign in: the local part of
- * the email, then the openId.
- *
- * Unlike every other reader in this file this one DOES return the hash, because
- * verifying a password needs it. It is therefore server-side only: never return
- * this row from a tRPC procedure.
- */
-export async function getUserByLocalUsername(username: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const normalised = username.trim().toLowerCase();
-  if (!normalised) return undefined;
-
-  // `ilike` for the same reason as the register search above: the uniqueness of
-  // a username, and the reach of an email prefix, were both inherited from
-  // MySQL's case-insensitive collation rather than decided here. This one is
-  // load-bearing in a way search is not — it is a step on the sign-in path, and
-  // an officer typing "R.Kivuva" would be told their password was wrong when
-  // their account exists.
-  const [byUsername] = await db
-    .select()
-    .from(users)
-    .where(ilike(users.username, normalised))
-    .limit(1);
-  if (byUsername) return byUsername;
-
-  const [byEmail] = await db
-    .select()
-    .from(users)
-    .where(ilike(users.email, `${normalised}@%`))
-    .limit(1);
-  if (byEmail) return byEmail;
-
-  const [byOpenId] = await db
-    .select()
-    .from(users)
-    .where(eq(users.openId, normalised))
-    .limit(1);
-  return byOpenId;
 }
 
 /** True when the username is already taken by another account. */
@@ -1147,6 +1074,40 @@ export async function deleteUser(id: number) {
 }
 
 /**
+ * The Supabase uuid an account is linked to, so the caller can delete the
+ * identity that goes with it. Null when the account was never provisioned.
+ */
+export async function getAuthUserIdForUser(id: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({ authUserId: users.authUserId })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  return row?.authUserId ?? null;
+}
+
+/**
+ * An account by the address Supabase signs it in with.
+ *
+ * Case-insensitive, because an address is not case-sensitive and Supabase will
+ * happily treat `A@x.com` and `a@x.com` as one identity while this lookup would
+ * otherwise return two different rows — which is how a register ends up
+ * describing one officer twice.
+ */
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(sql`lower(${users.email}) = ${email.trim().toLowerCase()}`)
+    .limit(1);
+  return row;
+}
+
+/**
  * Set an account's display name. Separate from the credential because the name
  * is what the party backfill matches against, and a local login created from a
  * username needs its real name set before it can be linked to any matter.
@@ -1166,14 +1127,58 @@ export async function setUserDisplayName(id: number, name: string) {
   await db.update(users).set({ name }).where(eq(users.id, id));
 }
 
-/** Attach or replace a local credential on an account. */
-export async function setUserPassword(id: number, passwordHash: string) {
+/**
+ * Link an existing row to the Supabase identity created for it.
+ *
+ * The two steps an administrator performs - create the identity in Supabase,
+ * then point this row at it - are separate because the second must not happen if
+ * the first failed, and a row pointed at a uuid that does not exist is an account
+ * that can never sign in and, to a later reader, looks provisioned.
+ *
+ * The uuid is written last and only once, so re-running the flow after a partial
+ * failure cannot silently re-point an officer's account at a different identity:
+ * that would hand one person's history to another's credentials.
+ */
+export async function linkAuthUser(id: number, authUserId: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.update(users).set({ passwordHash }).where(eq(users.id, id));
-  return getUserByOpenId(
-    (await listUsers()).find(u => u.id === id)?.openId ?? ""
-  );
+  const existing = await db
+    .select({ authUserId: users.authUserId })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  if (existing[0]?.authUserId) {
+    throw new Error(
+      "This account is already linked to an identity. Deactivate or remove it before creating another."
+    );
+  }
+  await db.update(users).set({ authUserId }).where(eq(users.id, id));
+  return getUserById(id);
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return row;
+}
+
+/**
+ * Unlink a row from its identity, on deletion.
+ *
+ * `deleteUser` removes the row; the Supabase identity is removed separately by
+ * the caller, which needs the service role. Clearing the column first is what
+ * makes the delete safe to run before that: the row is no longer reachable by
+ * any session, so a failure in the second step leaves a dead identity rather
+ * than a live one pointed at a row that no longer exists.
+ */
+export async function clearAuthLink(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db
+    .update(users)
+    .set({ authUserId: null })
+    .where(eq(users.id, id));
 }
 
 export async function createUser(input: {
@@ -1182,7 +1187,7 @@ export async function createUser(input: {
   email?: string | null;
   username?: string | null;
   role: (typeof users.role.enumValues)[number];
-  passwordHash?: string | null;
+  authUserId?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -1191,12 +1196,26 @@ export async function createUser(input: {
     name: input.name,
     email: input.email ?? null,
     username: input.username?.trim().toLowerCase() || null,
-    loginMethod: input.passwordHash ? "local" : "admin",
+    // Always "supabase" now. The column survives because the audit log records
+    // how an account signed in when an event was written, and an event from
+    // last year is not made truer by relabelling it.
+    loginMethod: "supabase",
     role: input.role,
     isActive: true,
-    passwordHash: input.passwordHash ?? null,
+    authUserId: input.authUserId ?? null,
   });
-  return getUserByOpenId(input.openId);
+  return getUserByAuthUserIdOrOpenId(input.authUserId, input.openId);
+}
+
+async function getUserByAuthUserIdOrOpenId(
+  authUserId: string | null | undefined,
+  openId: string
+) {
+  if (authUserId) return getUserById((await listUsers()).find(u => u.authUserId === authUserId)?.id ?? -1);
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  return row;
 }
 
 export async function setUserRole(

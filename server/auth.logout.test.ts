@@ -1,11 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { handleLogin } from "./_core/localAuthHandlers";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { appRouter } from "./routers";
-import { COOKIE_NAME } from "../shared/const";
-import type { TrpcContext } from "./_core/context";
+import { createContextFromUser, type TrpcContext } from "./_core/context";
 
 type CookieCall = {
   name: string;
+  value: string;
   options: Record<string, unknown>;
 };
 
@@ -20,30 +19,35 @@ function createAuthContext(): {
   const user: AuthenticatedUser = {
     id: 1,
     openId: "sample-user",
+    authUserId: "00000000-0000-4000-8000-000000000001",
     email: "sample@example.com",
     name: "Sample User",
-    loginMethod: "manus",
+    loginMethod: "supabase",
     role: "user",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
   };
 
-  const ctx: TrpcContext = {
-    user,
-    req: {
-      protocol: "https",
-      headers: {},
-    } as TrpcContext["req"],
-    res: {
-      clearCookie: (name: string, options: Record<string, unknown>) => {
-        clearedCookies.push({ name, options });
-      },
-    } as TrpcContext["res"],
-  };
+  const ctx = createContextFromUser(
+    { protocol: "https", headers: {} },
+    user
+  );
 
-  return { ctx, clearedCookies };
+  return {
+    ctx: { ...ctx, res: {
+      clearCookie: (name: string, options: Record<string, unknown>) => {
+        clearedCookies.push({ name, value: "", options });
+      },
+    } } as TrpcContext,
+    clearedCookies,
+  };
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.resetModules();
+});
 
 describe("auth.logout", () => {
   it("clears the session cookie and reports success", async () => {
@@ -54,7 +58,6 @@ describe("auth.logout", () => {
 
     expect(result).toEqual({ success: true });
     expect(clearedCookies).toHaveLength(1);
-    expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
     expect(clearedCookies[0]?.options).toMatchObject({
       maxAge: -1,
       secure: true,
@@ -63,58 +66,63 @@ describe("auth.logout", () => {
       path: "/",
     });
   });
-});
 
-describe("oauth next-path handling", () => {
-  it("only follows same-origin relative paths", () => {
-    // Mirrors safeNextPath() in server/_core/oauth.ts. `state` is forgeable by an
-    // attacker, so anything that could leave this origin must fall back to "/".
-    const safeNextPath = (value: string | undefined) => {
-      if (!value) return "/";
-      if (!value.startsWith("/")) return "/";
-      if (value.startsWith("//") || value.startsWith("/\\")) return "/";
-      // eslint-disable-next-line no-control-regex
-      if (/[\u0000-\u001f\u007f]/.test(value)) return "/";
-      return value;
-    };
+  it("signs out of Supabase so the session stops resolving server-side", async () => {
+    // Clearing one cookie of our own would leave the session Supabase actually
+    // reads in place, and the officer would be signed out in the interface
+    // while every request behind it still authenticated. Asserted directly
+    // because this is the one part of sign-out that cannot be seen from the
+    // outside.
+    vi.stubEnv("SUPABASE_URL", "https://project.supabase.co");
+    vi.stubEnv("SUPABASE_ANON_KEY", "anon-test-key");
 
-    // Legitimate deep links survive.
-    expect(safeNextPath("/cases/42")).toBe("/cases/42");
-    expect(safeNextPath("/cases?next=1")).toBe("/cases?next=1");
-    expect(safeNextPath("/")).toBe("/");
-    expect(safeNextPath(undefined)).toBe("/");
+    const signOut = vi.fn().mockResolvedValue({ error: null });
+    // Partial, so the real `isSupabaseConfigured` and the rest of the module
+    // are still there. A full replacement would make any other test in this
+    // file that imports the module fail on a missing export rather than on the
+    // thing it is actually checking.
+    vi.doMock("./_core/supabaseAuth", async importOriginal => ({
+      ...(await importOriginal<typeof import("./_core/supabaseAuth")>()),
+      createServerClient: vi.fn().mockResolvedValue({
+        auth: { signOut },
+      }),
+    }));
 
-    // Open-redirect attempts all collapse to the root.
-    expect(safeNextPath("//evil.example.com")).toBe("/");
-    expect(safeNextPath("https://evil.example.com")).toBe("/");
-    expect(safeNextPath("http://evil.example.com")).toBe("/");
-    expect(safeNextPath("javascript:alert(1)")).toBe("/");
-    // Browsers normalise a backslash after the slash to "//", which is
-    // protocol-relative. This is the case a naive check misses.
-    expect(safeNextPath("/\\evil.example.com")).toBe("/");
-    expect(safeNextPath("/cases\n//evil.example.com")).toBe("/");
+    const { appRouter: freshRouter } = await import("./routers");
+    const { ctx } = createAuthContext();
+
+    const result = await freshRouter.createCaller(ctx).auth.logout();
+
+    expect(result).toEqual({ success: true });
+    expect(signOut).toHaveBeenCalledOnce();
+  });
+
+  it("still ends the browser session when Supabase cannot be reached", async () => {
+    // An outage must not leave an officer unable to leave a shared machine. The
+    // cookie clear happens regardless of what Supabase said.
+    vi.stubEnv("SUPABASE_URL", "https://project.supabase.co");
+    vi.stubEnv("SUPABASE_ANON_KEY", "anon-test-key");
+
+    vi.doMock("./_core/supabaseAuth", async importOriginal => ({
+      ...(await importOriginal<typeof import("./_core/supabaseAuth")>()),
+      createServerClient: vi.fn().mockRejectedValue(new Error("network down")),
+    }));
+
+    const { appRouter: freshRouter } = await import("./routers");
+    const { ctx, clearedCookies } = createAuthContext();
+
+    const result = await freshRouter.createCaller(ctx).auth.logout();
+
+    expect(result).toEqual({ success: true });
+    expect(clearedCookies).toHaveLength(1);
   });
 });
 
-describe("a deployment with no database", () => {
-  it("does not blame the officer's password", async () => {
-    // With no DATABASE_URL there are no accounts to match against, so the
-    // lookup returns nothing and the handler used to answer "that username and
-    // password do not match an account" — true of the credentials, and useless
-    // about a deployment that cannot reach its database at all.
-    const previous = process.env.DATABASE_URL;
-    delete process.env.DATABASE_URL;
-    try {
-      const result = await handleLogin(
-        { username: "anyone", password: "morobe2026officer" },
-        "127.0.0.1",
-        true
-      );
-      expect(result.status).toBe(503);
-      expect(result.body.error).toMatch(/no database configured/i);
-      expect(result.body.error).not.toMatch(/do not match/i);
-    } finally {
-      if (previous !== undefined) process.env.DATABASE_URL = previous;
-    }
-  });
-});
+/**
+ * A deployment with no Supabase configuration is covered in
+ * supabase.config.test.ts, which is a separate file on purpose: this one mocks
+ * the Supabase module, and a mock registered for one test stays registered for
+ * the next one in the same file. Asserting that the *real* module reports
+ * misconfiguration from inside a file that has replaced it would be testing the
+ * mock.
+ */

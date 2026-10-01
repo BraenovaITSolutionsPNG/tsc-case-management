@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { COOKIE_NAME, UNAUTHED_ERR_MSG } from "@shared/const";
+import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
@@ -23,13 +23,12 @@ import superjson from "superjson";
 /**
  * Send an officer whose session has expired to the sign-in page.
  *
- * This deliberately does not call `startLogin()`. That launches the identity
- * provider's flow, and in development it falls through to `/api/dev/login`,
- * which signs the visitor in as the dev owner without being asked — so a
- * signed-out officer was quietly given a session instead of being shown the
- * sign-in form. The sign-in page is the one place credentials are entered, and
- * an expired session belongs there, carrying the path they were on so they
- * land back on it afterwards.
+ * Nothing is signed anyone in here. The development login route that used to
+ * be reached from this path signed the visitor in as the platform owner without
+ * being asked, so a signed-out officer was quietly given a session instead of
+ * being shown the form. The sign-in page is the one place credentials are
+ * entered, and an expired session belongs there, carrying the path they were on
+ * so they land back on it afterwards.
  */
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -87,27 +86,12 @@ function makeTrpcClient() {
       httpBatchLink({
         url: "/api/trpc",
         transformer: superjson,
-        headers() {
-          // Preview auto-login fallback: when the browser blocks iframe
-          // cookies (Safari ITP / private browsing / WebView), the runtime
-          // mirrors the session into sessionStorage so we can forward it as a
-          // Bearer token. The regular OAuth cookie flow keeps working and takes
-          // priority server-side.
-          try {
-            const raw = sessionStorage.getItem("manus-cookie");
-            if (raw) {
-              const prefix = `${COOKIE_NAME}=`;
-              const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
-              const token = pair?.trim().slice(prefix.length);
-              if (token) {
-                return { Authorization: `Bearer ${token}` };
-              }
-            }
-          } catch {
-            // sessionStorage unavailable
-          }
-          return {};
-        },
+        // No Authorization header is set. The Supabase session cookie is
+        // httpOnly, so the browser sends it with `credentials: "include"` below
+        // and this code never handles a token. The old header path existed to
+        // mirror the session into sessionStorage for browsers that block iframe
+        // cookies; carrying a copy of the session in script-readable storage is
+        // a worse trade than asking an officer to sign in again.
         fetch(input, init) {
           return globalThis.fetch(input, {
             ...(init ?? {}),

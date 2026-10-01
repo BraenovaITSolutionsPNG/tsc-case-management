@@ -1,4 +1,7 @@
-import { sdk, type AuthenticatedUser } from "./sdk";
+import {
+  authenticateSupabaseRequest,
+  type AuthenticatedUser,
+} from "./supabaseSession";
 
 /**
  * The request shape the routers actually depend on.
@@ -53,9 +56,14 @@ export async function createContext(
   let user: AuthenticatedUser | null = null;
 
   try {
-    user = await sdk.authenticateRequest(req);
+    user = await authenticateSupabaseRequest();
   } catch (error) {
-    // Authentication is optional for public procedures.
+    // Authentication is optional for public procedures, so a failure to resolve
+    // a caller is not by itself an error. It is logged rather than swallowed:
+    // a deployment with no Supabase configuration fails here on every request,
+    // and a silent `user = null` would present that as "everyone is signed out"
+    // instead of "this deployment is misconfigured".
+    console.warn("[Auth] Could not resolve the Supabase session:", String(error));
     user = null;
   }
 
