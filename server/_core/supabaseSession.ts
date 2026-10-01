@@ -41,37 +41,53 @@ export type AuthenticatedUser = Omit<User, "passwordHash"> & {
  *     on every request, and the one place that cannot be forgotten is the one
  *     that builds the identity.
  *
- * `getUser` revalidates against Supabase on every call rather than trusting the
+* `getUser` revalidates against Supabase on every call rather than trusting the
  * cookie's contents, which is what makes deleting or disabling an account take
  * effect immediately instead of at token expiry. It also means a refreshed
- * access token is written back through the cookie adapter as a side effect, so
- * the session survives without this app handling a token.
+ * access token is written back through the cookie adapter as a side effect, so the
+ * session survives without this app handling a token.
  *
- * The database is asked whether it is there at all before it is asked who the
- * caller is, and that ordering is the whole of the fourth case. A platform that
- * cannot reach its database has no opinion about anybody's account, and
- * `getUserByAuthUserId` answers `undefined` for a missing database and for a
- * missing row alike — so without this check an unreachable database presents as
- * "this account has not been set up", which sends the operator to create an
- * account that already exists while the officer is told the account is the
- * problem. The two faults have opposite fixes and neither symptom points at the
- * right one.
+ * The session is resolved *before* the database is asked whether it is there, and
+ * that ordering is the whole of the fourth case. A platform that cannot reach its
+ * database has no opinion about anybody's account, and `getUserByAuthUserId`
+ * answers `undefined` for a missing database and for a missing row alike — so
+ * without the check an unreachable database presents as "this account has not
+ * been set up", which sends the operator to create an account that already exists
+ * while the officer is told the account is the problem. The two faults have
+ * opposite fixes and neither symptom points at the right one.
+ *
+ * It also decides who the refusal is written for. The check used to come first,
+ * which meant a deployment with no database refused *every* request — including
+ * the anonymous ones — and so told an officer who had not yet signed in that their
+ * password had been accepted. That sentence is only assertable about somebody who
+ * presented a session, so the session is resolved before anything is claimed about
+ * it: an anonymous visitor on a broken platform gets the form, and the officer
+ * who has proved who they are gets the refusal, which is now true of every
+ * refusal the sign-in screen can show.
+ *
+ * Cheaper as well as more honest. Anonymous traffic — every screen an
+ * unauthenticated visitor loads — used to open a database connection and run
+ * `SELECT version()` before it discovered there was nobody to identify. It now
+ * costs one Supabase call and no database connection at all.
  */
 export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser | null> {
   const { getDb, getUserByAuthUserId, touchLastSignedIn } = await import(
     "../db"
   );
 
+  const supabase = await createServerClient();
+  const { data, error } = await supabase.auth.getUser();
+
+  // First, because everything below this line is a statement about somebody who
+  // presented a session, and "no session is not an error" is true whether or not
+  // the database is there.
+  if (error || !data.user) return null;
+
   if (!(await getDb())) {
     throw new Error(
       "The platform cannot reach its database, so your account could not be checked. Nothing is wrong with your account — try again shortly, and tell the platform administrator if it continues."
     );
   }
-
-  const supabase = await createServerClient();
-  const { data, error } = await supabase.auth.getUser();
-
-  if (error || !data.user) return null;
 
   const user = await getUserByAuthUserId(data.user.id);
 

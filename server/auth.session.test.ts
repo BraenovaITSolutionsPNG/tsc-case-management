@@ -10,6 +10,11 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * unreachable database that presents as "this account has not been set up" sends
  * the operator off to create an account that already exists.
  *
+ * Every refusal here is also only ever written for a caller who presented a
+ * session, which is why the last test in the database block asks for the silence
+ * instead: a platform that cannot reach its database still has to be able to say
+ * so to the one person it is true of, without saying it to everybody.
+ *
  * The database module is mocked rather than pointed at a real one, because the
  * behaviour under test *is* the branch taken when there is no database, and a
  * real connection would make the interesting case the unreachable one.
@@ -80,6 +85,25 @@ describe("a platform that cannot reach its database", () => {
     // query that throws the connection error this branch exists to pre-empt,
     // and the log would then name a driver failure instead of the cause.
     expect(db.getUserByAuthUserId).not.toHaveBeenCalled();
+  });
+
+  it("is not told to an officer who has not signed in yet", async () => {
+    // The sign-in screen's fixed sentence under the refusal says the password
+    // was accepted. That is assertable only about somebody who presented a
+    // session — a visitor who has not typed anything has accepted nothing, and
+    // sending them away from a form that will work the moment the platform can
+    // reach its database is the one outcome the refusal must not cause.
+    scenario({ database: false });
+    serverClient.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    });
+
+    expect(await authenticateSupabaseRequest()).toBeNull();
+
+    // Anonymous traffic never needed a database connection, and this is what
+    // stops it opening one on every screen an unauthenticated visitor loads.
+    expect(db.getDb).not.toHaveBeenCalled();
   });
 });
 
