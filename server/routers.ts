@@ -37,7 +37,10 @@ import {
 import { matterTypeValues, provinceValues } from "@shared/matters";
 import { ROLE_VALUES, type Role } from "@shared/roles";
 import { STATUS_VALUES } from "@shared/statuses";
-import { getSessionCookieOptions } from "./_core/cookies";
+import {
+  getSessionCookieOptions,
+  supabaseSessionCookieNames,
+} from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import {
   issuePasswordReset,
@@ -490,11 +493,32 @@ export const appRouter = router({
     /**
      * Sign out.
      *
-     * Clears the Supabase session cookies rather than one application cookie of
-     * our own, so the server-side Supabase client stops finding a session on the
-     * next request. @supabase/ssr knows the cookie names, which include the
-     * project ref and a chunk index when a session is large enough to be split;
-     * naming them here would be correct only until that happened.
+     * Ends the session in three places, because one of them failing leaves the
+     * officer unable to leave a shared machine:
+     *
+     *  - Supabase is told, so the session stops resolving server-side even if the
+     *    browser keeps the cookie.
+     *  - Every Supabase session cookie *present on this request* is deleted by
+     *    name. This is the part that cannot be delegated. `@supabase/ssr` only
+     *    writes a deletion for a session it found in its own store, and inside a
+     *    tRPC procedure running on a route handler that store is the one
+     *    `next/headers` handed over — so the call can succeed and put nothing on
+     *    the wire at all. Observed: a sign-out answered 200 with a single
+     *    Set-Cookie, for `app_session_id`, which nothing in this app has set
+     *    since the move to Supabase. The session cookie went untouched, and
+     *    `auth.me` resolved the same session again on the next request — an
+     *    officer pressing Sign out returned to the screen they pressed it on,
+     *    with no way off it.
+     *
+     *    Names are read off the request rather than computed, which is what makes
+     *    this correct for the chunk index: a session too large for one cookie
+     *    arrives as `sb-<ref>-auth-token.0`, `.1`, and so on, and deleting only
+     *    the base name deletes a cookie that was never sent. A cookie of that
+     *    shape that arrived on this request is by definition a session cookie,
+     *    so there is nothing to guess at.
+     *  - `COOKIE_NAME` is cleared as well, for the deployment that still has it.
+     *    Nothing sets it now, so this is a no-op rather than a deletion of a
+     *    cookie somebody might rely on.
      *
      * Public, not protected: signing out has to work when there is no valid
      * session, which is exactly when a user is most likely to press the button.
@@ -510,13 +534,16 @@ export const appRouter = router({
         // usable session, or the officer cannot leave.
         console.warn("[Auth] Supabase sign-out failed:", String(error));
       }
-      // Explicit removal of the session cookies as well, in case the client
-      // above could not run. Best effort: a cookie that was never set is not an
-      // error to report.
-      ctx.res.clearCookie(COOKIE_NAME, {
-        ...getSessionCookieOptions(ctx.req),
-        maxAge: -1,
-      });
+
+      const cookieOptions = { ...getSessionCookieOptions(ctx.req), maxAge: -1 };
+
+      // Deleted whether or not the sign-out above succeeded, and whether or not
+      // it ran: this is the part the browser acts on.
+      for (const name of supabaseSessionCookieNames(ctx.req)) {
+        ctx.res.clearCookie(name, cookieOptions);
+      }
+
+      ctx.res.clearCookie(COOKIE_NAME, cookieOptions);
       return { success: true } as const;
     }),
   }),

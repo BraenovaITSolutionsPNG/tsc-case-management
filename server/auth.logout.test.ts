@@ -10,7 +10,7 @@ type CookieCall = {
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createAuthContext(): {
+function createAuthContext(headers: Record<string, string> = {}): {
   ctx: TrpcContext;
   clearedCookies: CookieCall[];
 } {
@@ -30,7 +30,7 @@ function createAuthContext(): {
   };
 
   const ctx = createContextFromUser(
-    { protocol: "https", headers: {} },
+    { protocol: "https", headers },
     user
   );
 
@@ -115,6 +115,43 @@ describe("auth.logout", () => {
 
     expect(result).toEqual({ success: true });
     expect(clearedCookies).toHaveLength(1);
+  });
+
+  it("deletes the Supabase session cookies the request actually carried", async () => {
+    // The cookie that holds the session is Supabase's, named for the project and
+    // split across `.0`, `.1` chunks when the session is large. Clearing
+    // `app_session_id` — which nothing has set since the move to Supabase — while
+    // leaving these in place is what made Sign out a no-op: the officer was
+    // returned to the refusal screen they pressed it on, every time.
+    //
+    // A real response carried exactly one Set-Cookie, for `app_session_id`, on a
+    // request that also held a session cookie. This asserts the other kind of
+    // request, and that Supabase being unreachable changes nothing about it.
+    vi.stubEnv("SUPABASE_URL", "https://project.supabase.co");
+    vi.stubEnv("SUPABASE_ANON_KEY", "anon-test-key");
+
+    vi.doMock("./_core/supabaseAuth", async importOriginal => ({
+      ...(await importOriginal<typeof import("./_core/supabaseAuth")>()),
+      createServerClient: vi.fn().mockRejectedValue(new Error("network down")),
+    }));
+
+    const { appRouter: freshRouter } = await import("./routers");
+    const { ctx, clearedCookies } = createAuthContext({
+      cookie:
+        "sb-project-ref-auth-token=base64; sb-project-ref-auth-token.0=chunk; unrelated=keep",
+    });
+
+    await freshRouter.createCaller(ctx).auth.logout();
+
+    const cleared = clearedCookies.map(cookie => cookie.name);
+    expect(cleared).toContain("sb-project-ref-auth-token");
+    // The chunk is a separate cookie, and deleting only the base name deletes one
+    // the browser never sent.
+    expect(cleared).toContain("sb-project-ref-auth-token.0");
+    expect(cleared).not.toContain("unrelated");
+    for (const cookie of clearedCookies) {
+      expect(cookie.options).toMatchObject({ maxAge: -1, path: "/" });
+    }
   });
 });
 

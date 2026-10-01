@@ -367,27 +367,26 @@ const [resetNote, setResetNote] = useState(false);
             happens next is not yours to fix: an administrator has to.
           </p>
           {/*
-           * The server's sign-out, not the browser's, and this is the one place
-           * that difference decides whether the button works.
+           * Both sign-outs, in that order, and the reason is not belt-and-braces.
            *
-           * `auth.me` reads an httpOnly cookie this code cannot see or clear, so
-           * `getSupabaseBrowserClient().auth.signOut()` clears only what
-           * @supabase/ssr wrote in this tab. The cookie the *server* reads is
-           * untouched, the next load resolves the same session, and the officer
-           * is back on this screen having pressed Sign out — a loop with no way
-           * out of it, on the one screen an officer reaches when something is
-           * already broken.
+           * `auth.me` reads an httpOnly cookie this code cannot see, so the
+           * browser's own sign-out cannot end the session the server resolves —
+           * on its own it cleared this tab and returned the officer to this very
+           * screen, having pressed the button. That is why the server's comes
+           * first: it deletes every Supabase session cookie that arrived on the
+           * request, by name, whether or not Supabase could be reached.
            *
-           * `auth.logout` signs out of Supabase *and* clears that cookie with
-           * `maxAge: -1` whether or not Supabase could be reached, which is what
-           * its own comment insists on: a sign-out that fails must still end with
-           * a browser holding no usable session. Every other sign-out in the app
-           * already goes through it.
+           * The browser's then runs, because the server can only delete the
+           * cookies it can see, and Supabase's client is the only party that
+           * knows every name it may have written — including a chunk index added
+           * by a library update. It is also the only party that clears
+           * client-side storage. It is second, and wrapped, so that its throwing —
+           * or the client's own build fault making `getSupabaseBrowserClient`
+           * throw outright — cannot stop the half that works.
            *
            * The navigation is in a `finally` for the same reason. If the request
-           * itself fails there is no cookie to clear and no way forward from this
-           * screen, but staying on it is still worse than going back to the form:
-           * an officer who retries from there has somewhere to retry from.
+           * fails there is nothing to clear and no way forward from this screen,
+           * but the form is still somewhere to retry from.
            */}
           <Button
             type="button"
@@ -399,6 +398,17 @@ const [resetNote, setResetNote] = useState(false);
               void logout()
                 .catch(error => {
                   console.error("[Auth] sign-out failed:", error);
+                })
+                .then(() => {
+                  try {
+                    return getSupabaseBrowserClient().auth.signOut();
+                  } catch (error) {
+                    console.warn("[Auth] browser sign-out failed:", error);
+                    return undefined;
+                  }
+                })
+                .catch(error => {
+                  console.warn("[Auth] browser sign-out failed:", error);
                 })
                 .finally(() => window.location.assign("/login"));
             }}

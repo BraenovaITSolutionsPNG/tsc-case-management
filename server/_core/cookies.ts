@@ -49,6 +49,43 @@ export function getSessionCookieOptions(
 }
 
 /**
+ * Supabase's session cookie names, as they appear on a request.
+ *
+ * `sb-<project-ref>-auth-token`, and `sb-<project-ref>-auth-token.<n>` for each
+ * chunk when the session is too large for one cookie — the browser sends what it
+ * was given and the server deletes what it can see, so a sign-out that deletes
+ * only the base name deletes a cookie that was never sent and leaves the session
+ * resolving.
+ *
+ * Read off the request rather than computed from the project ref, because the
+ * names are the library's business and they have changed before (the app's own
+ * `app_session_id` is the scar from when it was ours). A cookie of this shape
+ * that arrived on the request is a session cookie by definition, so deleting it
+ * cannot remove something unrelated.
+ */
+const SUPABASE_SESSION_COOKIE = /^sb-.+-auth-token(?:\.\d+)?$/;
+
+/** Every Supabase session cookie on this request, de-duplicated, base name last. */
+export function supabaseSessionCookieNames(req: TrpcRequest): string[] {
+  const header = req.headers.cookie;
+  if (!header) return [];
+
+  const sent = Array.isArray(header) ? header.join("; ") : header;
+  const found = new Set<string>();
+
+  for (const pair of sent.split(";")) {
+    // Split on the first `=` only: the value is base64 and may itself contain
+    // padding, and nothing here needs the value.
+    const name = pair.split("=")[0]?.trim();
+    if (name && SUPABASE_SESSION_COOKIE.test(name)) {
+      found.add(name);
+    }
+  }
+
+  return [...found];
+}
+
+/**
  * Serialises a cookie write into a `Set-Cookie` header value.
  *
  * Next.js route handlers cannot hand a cookie to an in-flight `Response` the
