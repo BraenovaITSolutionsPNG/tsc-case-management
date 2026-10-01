@@ -211,7 +211,7 @@ function Illustration() {
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, logout } = useAuth();
   // Null unless the server refused a session the browser holds: an identity
   // with no register row, or an account that has been deactivated. Null for an
   // ordinary anonymous visitor, which is why this is a second query rather than
@@ -243,8 +243,11 @@ function LoginForm() {
   // person who sits down at it, so remembering the address was a convenience
   // that cost more than it was worth. The password is never written anywhere
   // regardless of this setting.
-  const [remember, setRemember] = useState(false);
-  const [resetNote, setResetNote] = useState(false);
+const [remember, setRemember] = useState(false);
+const [resetNote, setResetNote] = useState(false);
+  // The refusal screen's one button, disabled while it runs so a second press
+  // cannot start a second sign-out behind the first.
+  const [signingOut, setSigningOut] = useState(false);
 
   // The remembered address is read after mount, never during the first render:
   // the server has no `localStorage`, so rendering from it there would produce
@@ -363,17 +366,44 @@ function LoginForm() {
             Your password was accepted — Supabase confirmed who you are. What
             happens next is not yours to fix: an administrator has to.
           </p>
+          {/*
+           * The server's sign-out, not the browser's, and this is the one place
+           * that difference decides whether the button works.
+           *
+           * `auth.me` reads an httpOnly cookie this code cannot see or clear, so
+           * `getSupabaseBrowserClient().auth.signOut()` clears only what
+           * @supabase/ssr wrote in this tab. The cookie the *server* reads is
+           * untouched, the next load resolves the same session, and the officer
+           * is back on this screen having pressed Sign out — a loop with no way
+           * out of it, on the one screen an officer reaches when something is
+           * already broken.
+           *
+           * `auth.logout` signs out of Supabase *and* clears that cookie with
+           * `maxAge: -1` whether or not Supabase could be reached, which is what
+           * its own comment insists on: a sign-out that fails must still end with
+           * a browser holding no usable session. Every other sign-out in the app
+           * already goes through it.
+           *
+           * The navigation is in a `finally` for the same reason. If the request
+           * itself fails there is no cookie to clear and no way forward from this
+           * screen, but staying on it is still worse than going back to the form:
+           * an officer who retries from there has somewhere to retry from.
+           */}
           <Button
             type="button"
             variant="outline"
             className="mt-8 w-full"
+            disabled={signingOut}
             onClick={() => {
-              void getSupabaseBrowserClient()
-                .auth.signOut()
+              setSigningOut(true);
+              void logout()
+                .catch(error => {
+                  console.error("[Auth] sign-out failed:", error);
+                })
                 .finally(() => window.location.assign("/login"));
             }}
           >
-            Sign out
+            {signingOut ? "Signing out…" : "Sign out"}
           </Button>
         </div>
       </main>
