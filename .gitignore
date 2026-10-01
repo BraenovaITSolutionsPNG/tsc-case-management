@@ -125,6 +125,11 @@ temp/
 database/tsc_case_management_dump.sql
 database/postgres-load.sql
 
+# Any .env variant. DATABASE_URL carries the database password, so a stray copy
+# under a different name is just as much of a leak as .env itself.
+.env*
+!.env.example
+
 # Development-only object storage fallback (server/storage.ts). Holds uploaded
 # files, so it must never be committed - it is not source and it is not a backup.
 .local-storage/

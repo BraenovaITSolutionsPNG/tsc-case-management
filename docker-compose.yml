@@ -1,25 +1,35 @@
-# PostgreSQL 17 for local development. The deployed platform runs on Supabase
-# (see the Database section of .env.example); this service is what
-# DATABASE_URL points at on a development machine, and nothing more.
+# Optional local PostgreSQL, for working offline or against a scratch database.
 #
-#   docker compose up -d          start the database
-#   docker compose down           stop it (data is kept in the named volume)
-#   docker compose down -v        stop it and delete the data
+# NOT the default and not needed for normal development. The deployed platform
+# runs on Supabase, and `.env` points DATABASE_URL there. Nothing in this file
+# is read unless you deliberately start it:
 #
-# The app runs on the host, so DATABASE_URL in .env points at 127.0.0.1:5432 and
-# this service only needs to publish the port. If you run the app in a container
-# too, add it to the same network and switch the host in DATABASE_URL to the
-# service name `postgres`.
+#   docker compose up -d     start it, then point DATABASE_URL at it
+#   docker compose down      stop it (the named volume keeps its data)
+#   docker compose down -v   stop it and DELETE THE DATA — read that twice
 #
-# database/bootstrap.sql is mounted into the entrypoint init directory, so the
-# database and application user are created on first start of an empty volume
-# only. On an existing volume re-apply it with:
-#   docker compose exec -T postgres psql -U postgres < database/bootstrap.sql
+# Two situations where it earns its place:
 #
-# Migrations are run against this service the same way as against Supabase, but
-# note the port rule from databaseConnection.ts: DDL needs a real session, and
-# that is why this service is a plain PostgreSQL rather than a pooler. Supabase's
-# equivalent is its direct connection on 5432, not the session pooler on 6543.
+#   - A network that cannot reach Supabase. Some corporate and campus networks
+#     block outbound Postgres (5432/6543) while allowing HTTPS, in which case a
+#     local server is the only way to run the app at all.
+#   - Schema work you do not want to try on the deployed database.
+#
+# When you do point at it, the credentials are the development defaults in
+# database/bootstrap.sql:
+#
+#   DATABASE_URL=postgresql://tsc:tsc_dev_password@127.0.0.1:5433/tsc_case_management
+#   DATABASE_SSL=disable
+#
+# 5433 rather than 5432 because another project's PostgreSQL already holds 5432
+# on some machines, and two services cannot share a published port. The container
+# listens on 5432 internally; only the host side differs, and DATABASE_URL is
+# what carries the number. Override with POSTGRES_HOST_PORT if you need to.
+#
+# Migrations run against this the same way as against Supabase, with one
+# difference that matters: this is a plain PostgreSQL, not a pooler, so DDL works
+# directly. Supabase's equivalent is its *direct* connection on 5432 — migrations
+# through the session pooler on 6543 half-apply while exiting green.
 
 services:
   postgres:
@@ -31,21 +41,15 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: tsc_case_management
     ports:
-      # Published on the host as 5433, not 5432. Another project's PostgreSQL
-      # already holds 5432 on this machine, and two services cannot share a
-      # published port — so this one moves rather than failing to start. The
-      # container still listens on 5432 inside; only the host side differs.
-      #
-      # Nothing in the application depends on this number: DATABASE_URL carries
-      # it. Change both together, or set POSTGRES_HOST_PORT and put the matching
-      # number in DATABASE_URL.
       - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      # Runs once, when the data volume is first initialised.
+      # Creates the application role, once, when the volume is first initialised.
+      # On an existing volume re-apply it with:
+      #   docker compose exec -T postgres psql -U postgres < database/bootstrap.sql
       - ./database/bootstrap.sql:/docker-entrypoint-initdb.d/10-bootstrap.sql:ro
     healthcheck:
-      # The app should not start migrating before the server accepts connections.
+      # Nothing should start migrating before the server accepts connections.
       test: ["CMD-SHELL", "pg_isready -U postgres -d tsc_case_management"]
       interval: 10s
       timeout: 5s
