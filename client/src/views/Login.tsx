@@ -1,6 +1,6 @@
 "use client";
 
-import { isOAuthConfigured, startLogin } from "@/const";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,6 @@ import {
   Eye,
   EyeOff,
   Loader2,
-  LogIn,
 } from "lucide-react";
 import officeIllustration from "@assets/login-bg-img/added-img.webp";
 import Image from "next/image";
@@ -27,21 +26,19 @@ import { Suspense, useEffect, useState } from "react";
 /**
  * The sign-in screen.
  *
- * Two ways in, and which of them is offered is decided by how this deployment
- * is configured rather than by the browser:
+ * One way in: an email address and a password, checked by Supabase. The
+ * credential goes from the browser to Supabase and no further — this deployment
+ * never sees an officer's password, which is the whole reason the identity layer
+ * moved off this application. The session Supabase returns is written to an
+ * httpOnly cookie, so nothing in the interface holds a token either.
  *
- * - The Commission's identity provider (OAuth). Offered only when
- *   `isOAuthConfigured` is true, because `startLogin()` throws when the portal
- *   is absent outside development, and a button that throws is worse than no
- *   button at all.
- * - Username and password, checked by `handleLogin`. This is the path this
- *   instance uses, in development and in production alike, because the identity
- *   provider is not configured here.
- *
- * There is no way to create an account from here. Officers are registered by
- * the platform administrator on the admin screen, which is also where a role is
- * assigned — the manual makes the office that receives an application
- * identifiable (§15), so an account cannot be self-issued at the front door.
+ * There is no way to create an account from here, and no way to sign up for one.
+ * Officers are registered by the platform administrator on the admin screen,
+ * which is also where a role is assigned — the manual makes the office that
+ * receives an application identifiable (§15), so an account cannot be
+ * self-issued at the front door. Public signup is switched off on the Supabase
+ * project for the same reason, so this form is the only door and it is a door
+ * an officer is given the key to.
  *
  * On presentation: the screen is one field of colour with a card laid across
  * the seam between the two halves. The brand panel runs to a diagonal edge, so
@@ -61,7 +58,7 @@ import { Suspense, useEffect, useState } from "react";
  * happen to be set to. Change PALETTE and the whole screen moves together.
  */
 
-const REMEMBER_KEY = "tsc-remembered-username";
+const REMEMBER_KEY = "tsc-remembered-email";
 
 /**
  * The office this platform belongs to, as it is credited on screen.
@@ -219,7 +216,7 @@ function LoginForm() {
     if (isAuthenticated) router.replace(next ?? "/");
   }, [isAuthenticated, next, router]);
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -228,20 +225,24 @@ function LoginForm() {
   // sight over their shoulder. State lives here rather than on the input so the
   // toggle is a real button, reachable by keyboard and announced.
   const [showPassword, setShowPassword] = useState(false);
-  // On by default, as the Commission's published design shows it. It stores the
-  // username only — never the password — and the write is guarded below, so
-  // ticking it costs nothing an officer cannot see and unticking it clears it.
-  const [remember, setRemember] = useState(true);
+  // Off by default, and not offered at all below. A public terminal on the
+  // Provincial Matters office floor should not hold a session for the next
+  // person who sits down at it, so remembering the address was a convenience
+  // that cost more than it was worth. The password is never written anywhere
+  // regardless of this setting.
+  const [remember, setRemember] = useState(false);
   const [resetNote, setResetNote] = useState(false);
 
-  // The remembered username is read after mount, never during the first render:
+  // The remembered address is read after mount, never during the first render:
   // the server has no `localStorage`, so rendering from it there would produce
   // markup that disagrees with the client's and React would discard the lot.
   useEffect(() => {
     try {
-      // The switch already starts on, so only the username needs restoring.
       const saved = localStorage.getItem(REMEMBER_KEY);
-      if (saved) setUsername(saved);
+      if (saved) {
+        setEmail(saved);
+        setRemember(true);
+      }
     } catch {
       // Storage disabled or full. The field simply starts empty.
     }
@@ -250,48 +251,77 @@ function LoginForm() {
   useEffect(() => {
     try {
       // Unticking clears what was remembered; an empty field writes nothing, so
-      // opening the page never wipes a username before it has been read back.
+      // opening the page never wipes an address before it has been read back.
       if (!remember) localStorage.removeItem(REMEMBER_KEY);
-      else if (username) localStorage.setItem(REMEMBER_KEY, username);
+      else if (email) localStorage.setItem(REMEMBER_KEY, email);
     } catch {
       // A browser that refuses the write still signs in; it just forgets.
     }
-  }, [remember, username]);
+  }, [remember, email]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/local/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, next }),
+      const supabase = getSupabaseBrowserClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
       });
-      const data = (await response.json()) as {
-        ok?: boolean;
-        error?: string;
-        next?: string;
-      };
-      if (!response.ok || !data.ok) {
-        setError(data.error ?? "That username and password were not accepted.");
+
+      if (signInError) {
+        // One message for every rejection. Supabase's own text would tell an
+        // officer whether the address exists, which is the answer an outsider
+        // needs to enumerate the Commission's staff, and it saves nobody any
+        // time: the fix is the same either way.
+        setError("That email address and password were not accepted.");
         return;
       }
+
       // The session is now in the cookie; a hard navigation lets the server
       // pick it up on the first paint instead of routing through a stale
-      // client-side cache.
-      window.location.assign(data.next ?? next ?? "/");
+      // client-side cache. `next` is same-origin relative or it would have been
+      // dropped by the sign-in screen's own check before reaching here.
+      window.location.assign(next ?? "/");
     } catch {
       setError(
         "The sign-in service could not be reached. Try again in a moment."
       );
     } finally {
       setBusy(false);
+      // The password is dropped from component state whatever happened. A form
+      // that keeps it after a rejection would leave it in memory for as long
+      // as the page is open, which on a shared machine is a stored credential
+      // nobody asked to store.
+      setPassword("");
     }
   };
 
   if (loading || isAuthenticated) {
     return <PageLoader label="Checking your session" />;
+  }
+
+  if (!isSupabaseConfigured) {
+    // A build with no Supabase URL or anon key cannot sign anybody in, and the
+    // form would fail on submit with nothing to explain why. Said here instead,
+    // at the one screen the officer is guaranteed to reach.
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6">
+        <div
+          className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]"
+          style={PALETTE as React.CSSProperties}
+        >
+          <h2 className="text-2xl font-bold text-[var(--login-ink)]">
+            Sign-in unavailable
+          </h2>
+          <p className="mt-4 text-[0.9375rem] leading-6 text-[var(--login-muted)]">
+            This deployment was built without sign-in configured. Tell the
+            platform administrator — nothing is wrong with your account.
+          </p>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -359,56 +389,31 @@ function LoginForm() {
                 Sign in
               </h2>
 
-              {isOAuthConfigured ? (
-                <div className="mt-7">
-                  <Button
-                    className="h-11 w-full rounded-lg bg-[var(--login-action)] text-[0.9375rem] font-medium text-white hover:bg-[var(--login-action-hover)]"
-                    onClick={() => startLogin(next)}
-                    disabled={busy}
-                  >
-                    <LogIn className="mr-2 h-4 w-4" />
-                    Sign in with the Commission account
-                  </Button>
-
-                  {/* The rule and the label, rather than a gap. Two ways in with
-                  nothing between them read as one confusing field. */}
-                  <div className="my-6 flex items-center gap-3">
-                    <span className="h-px flex-1 bg-[var(--login-line)]" />
-                    <span className="text-xs font-medium uppercase tracking-wider text-[var(--login-faint)]">
-                      or
-                    </span>
-                    <span className="h-px flex-1 bg-[var(--login-line)]" />
-                  </div>
-                </div>
-              ) : null}
-
-              <form
-                onSubmit={submit}
-                className={isOAuthConfigured ? "space-y-5" : "mt-8 space-y-0"}
-              >
+              <form onSubmit={submit} className="mt-8 space-y-0">
                 <div>
                   <Label
-                    htmlFor="username"
+                    htmlFor="email"
                     className="text-[0.9375rem] font-medium text-[var(--login-ink)]"
                   >
-                    Username
+                    Email address
                   </Label>
                   <Input
-                    id="username"
-                    name="username"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
                     autoComplete="username"
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
                     required
                     aria-invalid={error ? true : undefined}
-                    placeholder="j.kumul"
+                    placeholder="j.kumul@education.gov.pg"
                     className="mt-2.5 h-11 rounded-lg border-[var(--login-line)] bg-transparent px-4 text-base text-[var(--login-ink)] shadow-none placeholder:text-[var(--login-faint)] focus-visible:border-[var(--login-action)] focus-visible:ring-[3px] focus-visible:ring-[var(--login-action-ring)]"
                   />
                   <p className="mt-2.5 text-[0.9375rem] leading-6 text-[var(--login-muted)]">
-                    The username the platform administrator issued you.
+                    The address the platform administrator registered for you.
                   </p>
                 </div>
 
@@ -473,8 +478,9 @@ function LoginForm() {
                   would be rejected at the far end anyway. */}
                 {resetNote ? (
                   <p className="mt-3 rounded-lg bg-[var(--login-note-surface)] px-3.5 py-3 text-[0.9375rem] leading-6 text-[var(--login-muted)]">
-                    Passwords are reset by the platform administrator. Ask them
-                    to re-issue yours, then sign in here.
+                    Passwords are reset by the platform administrator, who can
+                    issue you a reset link. Ask them, then set a new password
+                    through it — they never need to know your current one.
                   </p>
                 ) : null}
 
@@ -489,7 +495,7 @@ function LoginForm() {
                     htmlFor="remember"
                     className="cursor-pointer text-[0.9375rem] font-medium text-[var(--login-muted)]"
                   >
-                    Remember sign in details
+                    Remember my email address
                   </Label>
                 </div>
 

@@ -1,18 +1,24 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CAPABILITIES, can, dashboardFor, refusalFor } from "../shared/access";
 import { ROLE_VALUES } from "../shared/roles";
 import type { Role } from "../shared/roles";
 import { roleAtLeast } from "../shared/roles";
-import {
-  hashPassword,
-  normaliseUsername,
-  validatePassword,
-  verifyPassword,
-} from "./_core/localAuth";
-import type { AuthenticatedUser } from "./_core/sdk";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import { MIN_PASSWORD_LENGTH } from "./auth/provisioning";
+
+/**
+ * The password policy an administrator's own input is held to, restated here
+ * rather than imported from the route, so the test does not pass by definition:
+ * the route's floor and this one have to agree, and if the route's floor is
+ * lowered this fails rather than following it down.
+ */
+function validateSupabasePassword(password: string): string | null {
+  return password.length < MIN_PASSWORD_LENGTH
+    ? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+    : null;
+}
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -23,9 +29,10 @@ function createContext(role: Role | null): TrpcContext {
       : {
           id: 1,
           openId: "test-user",
+          authUserId: "00000000-0000-4000-8000-000000000002",
           email: "test@example.com",
           name: "Test User",
-          loginMethod: "manus",
+          loginMethod: "supabase",
           role,
           isActive: true,
           createdAt: new Date(),
@@ -234,77 +241,46 @@ describe("capability model", () => {
   });
 });
 
-describe("local password credentials", () => {
-  it("accepts the password it hashed", () => {
-    const hash = hashPassword("morobe2026officer");
-    expect(verifyPassword("morobe2026officer", hash)).toBe(true);
+describe("credentials live in Supabase, not here", () => {
+  it("has no module left that could hash a password", () => {
+    // The previous arrangement kept scrypt here: localAuth.ts hashed an
+    // officer's password, compared it, and the users table stored the result.
+    // All of it is deleted. Checked by absence of the file rather than by
+    // behaviour, so a partial reintroduction — a helper that hashes and is
+    // never called — is caught rather than sitting in the tree unused.
+    expect(
+      existsSync(new URL("./_core/localAuth.ts", import.meta.url))
+    ).toBe(false);
   });
 
-  it("rejects anything else", () => {
-    const hash = hashPassword("morobe2026officer");
-    expect(verifyPassword("morobe2026office", hash)).toBe(false);
-    expect(verifyPassword("", hash)).toBe(false);
-    expect(verifyPassword("MOROBE2026OFFICER", hash)).toBe(false);
-  });
-
-  it("salts, so the same password hashes differently every time", () => {
-    const a = hashPassword("morobe2026officer");
-    const b = hashPassword("morobe2026officer");
-    expect(a).not.toBe(b);
-    // Both still verify: the salt travels with the hash.
-    expect(verifyPassword("morobe2026officer", a)).toBe(true);
-    expect(verifyPassword("morobe2026officer", b)).toBe(true);
-  });
-
-  it("never stores the password itself", () => {
-    expect(hashPassword("morobe2026officer")).not.toContain(
-      "morobe2026officer"
+  it("has no credential column on the users table", () => {
+    const schema = readFileSync(
+      new URL("../drizzle/schema.ts", import.meta.url),
+      "utf8"
     );
+    // The column was dropped rather than left null, so a future contributor
+    // cannot write to a field that no longer has anything reading it.
+    expect(schema).not.toMatch(/passwordHash/);
   });
 
-  it("treats a missing or corrupt hash as a failure rather than throwing", () => {
-    // A null hash means "this account has no local credential" and must read as
-    // a failed verification, not an exception.
-    expect(verifyPassword("anything", null)).toBe(false);
-    expect(verifyPassword("anything", undefined)).toBe(false);
-    expect(verifyPassword("anything", "")).toBe(false);
-    expect(verifyPassword("anything", "not-a-hash")).toBe(false);
-    expect(verifyPassword("anything", "scrypt$32768$8$1$onlyfour$parts")).toBe(
-      false
-    );
-  });
-
-  it("refuses absurd scrypt parameters from a tampered row", () => {
-    // N far above the ceiling must be rejected before allocating, or a
-    // corrupted row could make the server reserve gigabytes of memory.
-    const tampered = `scrypt$999999999$8$1$AAAAAAAAAAAAAAAAAAAAAA==$${"A".repeat(86)}`;
-    expect(verifyPassword("morobe2026officer", tampered)).toBe(false);
-  });
-
-  it("enforces the password policy", () => {
-    expect(validatePassword("short1")).toMatch(/at least 10/i);
-    expect(validatePassword("alllettersonly")).toMatch(
-      /letter and one number/i
-    );
-    expect(validatePassword("morobe2026")).toBeNull();
-  });
-
-  it("normalises a typed username", () => {
-    expect(normaliseUsername("  J.Kumul ")).toBe("j.kumul");
+  it("enforces a minimum length on a password an administrator sets", () => {
+    expect(validateSupabasePassword("short1")).toMatch(/at least 10/i);
+    expect(validateSupabasePassword("morobe2026")).toBeNull();
   });
 });
 
-describe("the stored credential never leaves the server", () => {
-  it("is absent from the request identity the client reads", () => {
-    // auth.me returns ctx.user verbatim, so the session type is the only thing
-    // standing between the password hash and the browser. Asserted at compile
-    // time: if a field is added back, this file stops type-checking.
+describe("the request identity carries no credential", () => {
+  it("is absent from the identity the client reads", () => {
+    // auth.me returns ctx.user verbatim, so the type is the thing standing
+    // between the users table and the browser. Asserted at compile time: if a
+    // field is added back, this file stops type-checking.
     const identity: AuthenticatedUser = {
       id: 1,
       openId: "test",
+      authUserId: "00000000-0000-4000-8000-000000000001",
       name: "Test",
       email: "test@example.com",
-      loginMethod: "local",
+      loginMethod: "supabase",
       role: "staff",
       isActive: true,
       createdAt: new Date(),
@@ -312,6 +288,23 @@ describe("the stored credential never leaves the server", () => {
       lastSignedIn: new Date(),
     };
     expect("passwordHash" in identity).toBe(false);
+    // The Supabase uuid is present instead: it is how the next request finds
+    // this row, and it is not a secret — the same value is in a cookie the
+    // browser holds.
+    expect(identity.authUserId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+  });
+
+  it("requires an email address, because that is what signs an officer in", async () => {
+    const caller = appRouter.createCaller(createContext("super_admin"));
+    await expect(
+      caller.admin.users.create({
+        name: "No Email",
+        email: "",
+        role: "staff",
+      })
+    ).rejects.toThrow();
   });
 
   it("refuses a password too short to be stored", async () => {
@@ -319,6 +312,7 @@ describe("the stored credential never leaves the server", () => {
     await expect(
       caller.admin.users.create({
         name: "Short Pass",
+        email: "short@example.com",
         role: "staff",
         password: "short",
       })
@@ -327,15 +321,19 @@ describe("the stored credential never leaves the server", () => {
 });
 
 describe("account administration", () => {
-  it("refuses a password with no username to go with it", async () => {
+  it("creates the account with no password, leaving the officer to set one", async () => {
+    // The route calls into Supabase, so this asserts only that the input shape
+    // an administrator must supply is accepted up to that point — a missing
+    // password is no longer an error, because a link is better than a credential
+    // an administrator has to invent and hand over.
     const caller = appRouter.createCaller(createContext("super_admin"));
     await expect(
       caller.admin.users.create({
-        name: "No Username",
+        name: "No Password",
+        email: "no.password@example.com",
         role: "staff",
-        password: "morobe2026officer",
       })
-    ).rejects.toThrow(/needs a username/i);
+    ).rejects.not.toThrow(/password/i);
   });
 
   it("stops an administrator deleting their own account", async () => {

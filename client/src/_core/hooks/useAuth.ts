@@ -1,4 +1,3 @@
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
@@ -9,10 +8,6 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  // Login is started via startLogin() in the effect below, only when we actually
-  // navigate — never during render. startLogin() mints a one-time nonce + writes
-  // the state cookie, so calling it per render would overwrite the cookie and
-  // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
 
@@ -38,12 +33,10 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
-      try {
-        sessionStorage.removeItem("manus-cookie");
-      } catch {}
+      // Cleared whichever way the mutation went. An officer who pressed "sign
+      // out" on a machine that must be left signed in has been told this
+      // succeeded, so the cached identity is dropped even when the request that
+      // would have ended the session failed.
       utils.auth.me.setData(undefined, null);
       await utils.auth.me.invalidate();
     }
@@ -65,23 +58,6 @@ export function useAuth(options?: UseAuthOptions) {
     ]
   );
 
-  // Mirrored into localStorage for the preview shell, in an effect rather than
-  // in the memo above: `localStorage` does not exist while the server is
-  // rendering, so a write during render throws and fails the prerender of every
-  // page that signs in. An effect runs only in the browser, which is the only
-  // place the value is of any use.
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "manus-runtime-user-info",
-        JSON.stringify(meQuery.data)
-      );
-    } catch {
-      // Storage disabled or full: the mirror is a convenience for the preview
-      // shell, not something the app reads back.
-    }
-  }, [meQuery.data]);
-
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
     if (meQuery.isLoading || logoutMutation.isPending) return;
@@ -89,12 +65,13 @@ export function useAuth(options?: UseAuthOptions) {
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
 
-    // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
-    if (redirectPath) {
-      window.location.href = redirectPath;
-    } else {
-      startLogin();
-    }
+    // Go to the sign-in screen. Nothing is started from here: the session lives
+    // in an httpOnly cookie this code cannot read, so an officer who is signed
+    // out is discovered by `auth.me` answering null and not by any local state.
+    // A full navigation rather than a client route, so the server resolves the
+    // session on the first paint instead of the app rendering a signed-out shell
+    // and correcting itself.
+    window.location.href = redirectPath ?? "/login";
   }, [
     redirectOnUnauthenticated,
     redirectPath,

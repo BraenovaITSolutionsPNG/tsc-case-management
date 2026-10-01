@@ -257,7 +257,7 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
               event.preventDefault();
               createMutation.mutate({
                 name,
-                email: email || undefined,
+                email,
                 role,
                 username: username || undefined,
                 password: password || undefined,
@@ -279,9 +279,10 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                 id="new-user-email"
                 name="email"
                 type="email"
+                required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="Email (optional)"
+                placeholder="Email (required — this is the sign-in)"
                 className="h-9"
               />
               <Select value={role} onValueChange={v => setRole(v as Role)}>
@@ -491,9 +492,9 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                                   setUsernameDraft("");
                                 }}
                               >
-                                {user.hasPassword
-                                  ? "derived from email — set one"
-                                  : "identity provider — set one"}
+                                {user.isProvisioned
+                                  ? "set — change it"
+                                  : "not set — set one"}
                               </button>
                             )}
                           </DenseCell>
@@ -551,6 +552,12 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                               <Button
                                 variant="outline"
                                 size="sm"
+                                disabled={!user.isProvisioned}
+                                title={
+                                  user.isProvisioned
+                                    ? "Set or replace this officer's password"
+                                    : "This account has no Supabase identity, so it cannot sign in yet"
+                                }
                                 onClick={() => {
                                   setResetFor(
                                     resetFor === user.id ? null : user.id
@@ -558,9 +565,9 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                                   setResetValue("");
                                 }}
                               >
-                                {user.hasPassword
+                                {user.isProvisioned
                                   ? "Reset password"
-                                  : "Set password"}
+                                  : "Not provisioned"}
                               </Button>
                               <Button
                                 variant="outline"

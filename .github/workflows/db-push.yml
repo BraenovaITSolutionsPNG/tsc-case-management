@@ -61,6 +61,24 @@ jobs:
       # fallback is visible rather than silent.
       DATABASE_SSL: require
     steps:
+      # Fails here, with an explanation, rather than three steps later with
+      # SELF_SIGNED_CERT_IN_CHAIN.
+      #
+      # A missing secret is otherwise indistinguishable from a wrong one in the
+      # log: `DATABASE_CA_CERT` expands to an empty string, `resolveSsl` falls
+      # through to the DATABASE_SSL branch, and the connection is attempted
+      # against the host trust store before it can be reported as unverifiable.
+      # The error names a certificate, which sends the reader looking for a
+      # certificate problem they do not have.
+      - name: Refuse to run without the CA certificate
+        if: ${{ secrets.DATABASE_CA_CERT == '' }}
+        run: |
+          echo "::error::DATABASE_CA_CERT is not set on this repository."
+          echo "The session pooler presents a certificate signed by Supabase's own CA,"
+          echo "which the runner's trust store cannot verify. Set the secret to the PEM"
+          echo "from Supabase Dashboard -> Database -> SSL Configuration (pooler"
+          echo "connections). A CA certificate is public, so it is safe as a secret."
+          exit 1
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -74,5 +92,7 @@ jobs:
       # generated and committed locally, where they can be read.
       - run: pnpm exec drizzle-kit migrate
       # Turns "the job went green" into "the tables are there", which is the
-      # difference between a green job and a working application.
+      # difference between a green job and a working application. It also asserts
+      # row level security is on with no policies, so a database left readable
+      # through the public anon key fails the deploy instead of passing it.
       - run: pnpm db:verify

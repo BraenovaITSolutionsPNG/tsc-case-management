@@ -38,8 +38,13 @@ import { matterTypeValues, provinceValues } from "@shared/matters";
 import { ROLE_VALUES, type Role } from "@shared/roles";
 import { STATUS_VALUES } from "@shared/statuses";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { hashPassword } from "./_core/localAuth";
 import { systemRouter } from "./_core/systemRouter";
+import {
+  issuePasswordReset,
+  provisionUser,
+  removeIdentity,
+  setPasswordDirectly,
+} from "./auth/provisioning";
 import { storageDelete, storagePut } from "./storage";
 import {
   adminProcedure,
@@ -51,12 +56,13 @@ import {
 import {
   addCaseDocument,
   addCaseEvent,
+  clearAuthLink,
   clearUserAvatar,
   createCase,
   createReferral,
-  createUser,
   deleteUser,
   deleteCaseDocument,
+  getAuthUserIdForUser,
   getCaseById,
   getDashboardData,
   getGoldenRuleCompliance,
@@ -78,7 +84,6 @@ import {
   recordReferralResponse,
   setUserActive,
   setUserAvatar,
-  setUserPassword,
   setUserRole,
   setUserUsername,
   summariseCases,
@@ -467,9 +472,33 @@ export const appRouter = router({
     removeAvatar: protectedProcedure.mutation(async ({ ctx }) => {
       return clearUserAvatar(ctx.user.id);
     }),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    /**
+     * Sign out.
+     *
+     * Clears the Supabase session cookies rather than one application cookie of
+     * our own, so the server-side Supabase client stops finding a session on the
+     * next request. @supabase/ssr knows the cookie names, which include the
+     * project ref and a chunk index when a session is large enough to be split;
+     * naming them here would be correct only until that happened.
+     *
+     * Public, not protected: signing out has to work when there is no valid
+     * session, which is exactly when a user is most likely to press the button.
+     */
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      try {
+        const { createServerClient } = await import("./_core/supabaseAuth");
+        const supabase = await createServerClient();
+        await supabase.auth.signOut();
+      } catch (error) {
+        // Cookies are cleared below regardless. A sign-out that fails because
+        // Supabase is unreachable must still end with a browser that has no
+        // usable session, or the officer cannot leave.
+        console.warn("[Auth] Supabase sign-out failed:", String(error));
+      }
+      // Explicit removal of the session cookies as well, in case the client
+      // above could not run. Best effort: a cookie that was never set is not an
+      // error to report.
+      ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 });
       return { success: true } as const;
     }),
   }),
@@ -1246,13 +1275,24 @@ export const appRouter = router({
     ),
     users: router({
       list: requireCapability("platform:users").query(() => listUsers()),
+      /**
+       * Create an account.
+       *
+       * The email is now required, not optional, because it is the address
+       * Supabase signs the officer in with and the one a reset link goes to.
+       * A username is optional and is a register-side label only: it no longer
+       * identifies anybody at sign-in, and a person cannot be locked out by
+       * choosing a name that is already taken.
+       *
+       * The password is optional. Left out, the officer sets their own on first
+       * sign-in via a reset link, which means no administrator ever handles
+       * somebody else's credential.
+       */
       create: requireCapability("platform:users")
         .input(
           z.object({
             name: requiredText("Full name", { min: 2, max: 160 }),
-            email: emailAddress().optional(),
-            // The name typed at sign-in. Required whenever a password is set,
-            // because a credential nobody can name is not a credential.
+            email: emailAddress(),
             username: z
               .string()
               .min(3)
@@ -1263,9 +1303,6 @@ export const appRouter = router({
               )
               .optional(),
             role: roleEnum,
-            // Optional local credential, for environments with no identity
-            // provider. Unused in production, where accounts sign in through the
-            // provider and this field is simply never sent.
             password: requiredText("Password", {
               min: 10,
               max: 200,
@@ -1273,33 +1310,28 @@ export const appRouter = router({
           })
         )
         .mutation(async ({ input }) => {
-          if (input.password && !input.username) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message:
-                "A password needs a username to go with it — that is what the person signs in with.",
-            });
-          }
           if (input.username && (await usernameTaken(input.username))) {
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: `The username "${input.username}" is already taken.`,
             });
           }
-          // A stable openId so re-creating the same person does not duplicate.
-          const slug = input.name
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, ".")
-            .replace(/^\.|\.$/g, "")
-            .slice(0, 60);
-          return createUser({
-            openId: `manual:${slug}`,
-            name: input.name,
-            email: input.email ?? null,
-            username: input.username ?? null,
-            role: input.role,
-            passwordHash: input.password ? hashPassword(input.password) : null,
-          });
+          try {
+            return await provisionUser({
+              name: input.name,
+              email: input.email,
+              username: input.username ?? null,
+              role: input.role as Role,
+              password: input.password ?? null,
+            });
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: String(
+                error instanceof Error ? error.message : error
+              ),
+            });
+          }
         }),
       setRole: requireCapability("platform:users")
         .input(
@@ -1332,13 +1364,7 @@ export const appRouter = router({
           }
           return setUserRole(input.id, input.role as Role);
         }),
-      /**
-       * Set or reset a local credential. Separate from create because an
-       * administrator routinely needs to issue a first password, or replace one
-       * an officer has forgotten, without changing anything else about the
-       * account.
-       */
-      /** Attach or change the sign-in name on an existing account. */
+      /** Attach or change the register-side label on an existing account. */
       setUsername: requireCapability("platform:users")
         .input(
           z.object({
@@ -1425,12 +1451,80 @@ export const appRouter = router({
               message: `This person appears in the accountability trail (${parts.join(", ")}), so deleting them would break the accountability trail. Deactivate the account instead — it closes the sign-in and keeps the record.`,
             });
           }
+          // The Supabase identity is cleared before the row goes, so a failure
+          // between the two steps leaves an identity that can no longer resolve
+          // to a row rather than one that still can.
+          const authUserId = await getAuthUserIdForUser(input.id);
+          if (authUserId) {
+            await clearAuthLink(input.id);
+            await removeIdentity(authUserId).catch((error) => {
+              // Logged, not raised: the register row is the accountability
+              // record and its deletion is the requested outcome. Refusing here
+              // would leave an officer's row alive because of a failure in a
+              // system that no longer matters for their sign-in.
+              console.error(
+                `[Admin] Account ${input.id} deleted, but its Supabase identity could not be removed:`,
+                error
+              );
+            });
+          }
           await deleteUser(input.id);
           console.log(
             `[Admin] Account ${target.name ?? target.email ?? input.id} deleted`
           );
           return { ok: true };
         }),
+      /**
+       * Issue a password-reset link for an account.
+       *
+       * The link is a bearer credential, so it is returned once to the
+       * administrator and never stored. The officer sets their own password
+       * through it, which is the reason this is preferred to `setPassword`
+       * below: an administrator handling somebody's password is a risk that
+       * does not arise at all if they never handle it.
+       */
+      sendResetLink: requireCapability("platform:users")
+        .input(z.object({ id: recordId("officer") }))
+        .mutation(async ({ input }) => {
+          const target = (await listUsers()).find(user => user.id === input.id);
+          if (!target)
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Account not found",
+            });
+          if (!target.email) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "This account has no email address, so there is nowhere to send a reset link.",
+            });
+          }
+          if (!target.authUserId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "This account has no Supabase identity yet, so it cannot sign in. Delete it and create it again.",
+            });
+          }
+          try {
+            return { ok: true, link: await issuePasswordReset(target.email) };
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: String(
+                error instanceof Error ? error.message : error
+              ),
+            });
+          }
+        }),
+      /**
+       * Set a password directly, without sending a link.
+       *
+       * Kept for a deployment with no working email, where a reset link cannot
+       * be delivered and an officer locked out of the register would otherwise
+       * have no way back in. It handles a real password, which is why the link
+       * above is the default.
+       */
       setPassword: requireCapability("platform:users")
         .input(
           z.object({
@@ -1445,9 +1539,27 @@ export const appRouter = router({
               code: "NOT_FOUND",
               message: "Account not found",
             });
-          await setUserPassword(input.id, hashPassword(input.password));
+          if (!target.authUserId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "This account has no Supabase identity, so there is no password to set.",
+            });
+          }
+          try {
+            await setPasswordDirectly(target.authUserId, input.password);
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: String(
+                error instanceof Error ? error.message : error
+              ),
+            });
+          }
+          // The value is not logged. The account is, because an audit line with
+          // no subject is not an audit line.
           console.log(
-            `[Admin] Local credential reset for ${target.name ?? target.email ?? input.id}`
+            `[Admin] Password set directly for ${target.name ?? target.email ?? input.id}`
           );
           return { ok: true };
         }),

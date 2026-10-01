@@ -58,6 +58,90 @@ async function main() {
     process.exit(1);
   }
   console.log(`[schema] ${required.join(" and ")} are present.`);
+
+  // The credential column must be gone.
+  //
+  // Not a cosmetic check. `passwordHash` held scrypt hashes that nothing can
+  // verify any more, because Supabase holds the credential now — so leaving the
+  // column means leaving a copy of every officer's old password in a table whose
+  // contents are readable by anything that reaches the database. Its presence
+  // is the single clearest sign that a migration predating the move to Supabase
+  // has been applied to a database that has moved on.
+  const credentialColumn = await db.execute(sql`
+    SELECT column_name AS name FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'users'
+      AND column_name = 'passwordHash'`);
+  if (
+    (credentialColumn as unknown as { rows: { name: string }[] }).rows.length
+  ) {
+    console.error(
+      '[schema] users.passwordHash still exists. The stored credential is no longer read by anything, and it should not be left in the table. Run pnpm db:push to apply 0001_supabase_auth.'
+    );
+    process.exit(1);
+  }
+
+  // ...and the Supabase link must be there. A database without it has no
+  // sign-inable account, which presents as every officer being refused at the
+  // front door rather than as a schema problem.
+  const linkColumn = await db.execute(sql`
+    SELECT column_name AS name FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'users'
+      AND column_name = 'authUserId'`);
+  if (!(linkColumn as unknown as { rows: { name: string }[] }).rows.length) {
+    console.error(
+      '[schema] users.authUserId is missing, so no account can be linked to a Supabase identity. Run pnpm db:push.'
+    );
+    process.exit(1);
+  }
+  console.log(
+    "[schema] users carries authUserId and no stored credential."
+  );
+
+  // Row level security.
+  //
+  // The application reads the database server-side with a privileged connection
+  // and does not go through PostgREST, so RLS is not what protects the register
+  // in normal operation. It is what protects it against everything else: the
+  // anon key is a public value by design and is present in every browser, and
+  // with RLS off, that key is a way to read the whole case register without
+  // signing in at all.
+  //
+  // A table can also have RLS enabled with no policies, which denies everything
+  // to anon and authenticated — that is the intended state here, and the
+  // count below reports it rather than failing on it. A non-zero policy count is
+  // worth a human look: a policy on the register's tables is a decision nobody
+  // in this codebase made.
+  const rls = await db.execute(sql`
+    SELECT c.relname AS name, c.relrowsecurity AS enabled
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = current_schema() AND c.relkind = 'r'
+    ORDER BY c.relname`);
+  const tablesWithoutRls = (
+    rls as unknown as { rows: { name: string; enabled: boolean }[] }
+  ).rows
+    .filter(row => !row.enabled)
+    .map(row => row.name);
+  if (tablesWithoutRls.length) {
+    console.error(
+      `[schema] Row level security is OFF on: ${tablesWithoutRls.join(", ")}. With the public anon key in every browser, these tables are readable by anyone who can reach the API. Enable RLS and add no policies.`
+    );
+    process.exit(1);
+  }
+
+  const policies = await db.execute(sql`
+    SELECT count(*)::int AS count FROM pg_policies
+    WHERE schemaname = current_schema()`);
+  const policyCount = (
+    policies as unknown as { rows: { count: number }[] }
+  ).rows[0]?.count;
+  console.log(
+    `[schema] RLS is enabled on all ${(
+      rls as unknown as { rows: unknown[] }
+    ).rows.length} tables, with ${policyCount} policies. No policies is correct: every read goes through the server.`
+  );
 }
 
 main().catch(error => {
