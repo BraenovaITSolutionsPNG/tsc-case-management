@@ -1,6 +1,10 @@
 "use client";
 
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import {
+  getSupabaseBrowserClient,
+  isSupabaseConfigured,
+  supabaseBuildFault,
+} from "@/lib/supabase";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -383,6 +387,24 @@ function LoginForm() {
             This deployment was built without sign-in configured. Tell the
             platform administrator — nothing is wrong with your account.
           </p>
+          {/*
+           * Which of the two it was, and what the value was. The paragraph
+           * above is all an officer can be told, because it is the whole of what
+           * the officer knows; it is not enough for whoever has to fix it, and
+           * this page is the only evidence the build left — `/login` is
+           * prerendered, so nothing at runtime will ever report back that the
+           * bundle was compiled without these.
+           *
+           * Safe to show, and deliberately so. It describes the build, not the
+           * reader: no request and no submitted account reaches this string, and
+           * the one value it can print is already in the bundle. The anon key is
+           * reported as present or absent and never printed.
+           */}
+          {supabaseBuildFault && (
+            <p className="mt-4 rounded-lg bg-[var(--login-muted)]/10 px-4 py-3 font-mono text-[0.8125rem] leading-6 break-words text-[var(--login-muted)]">
+              {supabaseBuildFault}
+            </p>
+          )}
         </div>
       </main>
     );
