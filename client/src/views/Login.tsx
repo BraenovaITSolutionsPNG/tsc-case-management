@@ -344,15 +344,19 @@ function LoginForm() {
   // who already had one.
   if (refusal) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6">
-        <div
-          className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]"
-          style={PALETTE as React.CSSProperties}
-        >
+      // The palette is published on the page element rather than on the card,
+      // for the same reason it is on the root element below: the page colour is
+      // read from it by an ancestor of the card, and a palette declared inside
+      // the card leaves the field the card sits on unpainted.
+      <main
+        className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6"
+        style={PALETTE as React.CSSProperties}
+      >
+        <div className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]">
           <h2 className="text-2xl font-bold text-[var(--login-ink)]">
             Signed in, but we cannot sign you in
           </h2>
-          <p className="mt-4 text-[0.9375rem] leading-6 text-[var(--login-body)]">
+          <p className="mt-4 text-[0.9375rem] leading-6 text-[var(--login-ink)]">
             {refusal}
           </p>
           <p className="mt-4 text-[13px] leading-6 text-[var(--login-muted)]">
@@ -381,11 +385,14 @@ function LoginForm() {
     // form would fail on submit with nothing to explain why. Said here instead,
     // at the one screen the officer is guaranteed to reach.
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6">
-        <div
-          className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]"
-          style={PALETTE as React.CSSProperties}
-        >
+      // Published on the page element for the same reason as on the refusal
+      // screen above, and because this is a whole page rather than a state of
+      // the form: the officer has no other screen to fall back to.
+      <main
+        className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6"
+        style={PALETTE as React.CSSProperties}
+      >
+        <div className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]">
           <h2 className="text-2xl font-bold text-[var(--login-ink)]">
             Sign-in unavailable
           </h2>
