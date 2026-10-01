@@ -1534,7 +1534,7 @@ function DocumentRow({
         ) : null}
         {document.fileKey ? (
           <a
-            href={`/manus-storage/${document.fileKey}`}
+            href={`/files/${document.fileKey}`}
             target="_blank"
             rel="noreferrer"
             className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-teal-800 hover:underline"

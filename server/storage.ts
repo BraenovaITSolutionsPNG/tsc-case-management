@@ -1,6 +1,10 @@
-// Preconfigured storage helpers for Manus WebDev templates
-// Uploads via Forge Server presigned URL to S3 (PUT direct).
-// Downloads return /manus-storage/{key} paths served via 307 redirect.
+// Object storage for case files and avatars.
+//
+// Two backends. Development writes to a directory under the project, so nothing
+// is needed to work on the app offline. Anything deployed presigns through
+// BUILT_IN_FORGE_API_* and PUTs straight to S3 — see `storagePut`. Downloads are
+// served from /files/{key}, which answers a 307 to a signed read when the object
+// is in a bucket and reads the bytes off disk when it is not.
 
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -99,7 +103,7 @@ export async function storagePut(
         ? Buffer.from(data)
         : Buffer.from(data as Uint8Array)
     );
-    return { key, url: `/manus-storage/${key}` };
+    return { key, url: `/files/${key}` };
   }
 
   const { forgeUrl, forgeKey } = getForgeConfig();
@@ -136,23 +140,23 @@ export async function storagePut(
     throw new Error(`Storage upload to S3 failed (${uploadResp.status})`);
   }
 
-  return { key, url: `/manus-storage/${key}` };
+  return { key, url: `/files/${key}` };
 }
 
 export async function storageGet(
   relKey: string
 ): Promise<{ key: string; url: string }> {
   const key = normalizeKey(relKey);
-  return { key, url: `/manus-storage/${key}` };
+  return { key, url: `/files/${key}` };
 }
 
 export async function storageGetSignedUrl(relKey: string): Promise<string> {
   const key = normalizeKey(relKey);
 
   // The local fallback has no signed URLs to hand out - the bytes are served
-  // straight off disk by the /manus-storage route - so the served path is the
+  // straight off disk by the /files route - so the served path is the
   // answer, and it is what the caller would have redirected to anyway.
-  if (ENV.useLocalStorage) return `/manus-storage/${key}`;
+  if (ENV.useLocalStorage) return `/files/${key}`;
 
   const { forgeUrl, forgeKey } = getForgeConfig();
 
