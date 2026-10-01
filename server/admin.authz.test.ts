@@ -35,6 +35,7 @@ function createContext(role: Role | null): TrpcContext {
           loginMethod: "supabase",
           role,
           isActive: true,
+          pendingApproval: false,
           createdAt: new Date(),
           updatedAt: new Date(),
           lastSignedIn: new Date(),

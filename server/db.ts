@@ -46,7 +46,9 @@ async function logServerFlavour(db: NonNullable<ReturnType<typeof drizzle>>) {
     // driver returned a bare array instead, which is why this is not one.
     const rows = (result as unknown as { rows: { version?: string }[] }).rows;
     const version = rows?.[0]?.version ?? "unknown";
-    console.log(`[Database] Connected to PostgreSQL ${version} — ${describeTls()}`);
+    console.log(
+      `[Database] Connected to PostgreSQL ${version} — ${describeTls()}`
+    );
   } catch (error) {
     console.warn("[Database] Could not determine server version:", error);
   }
@@ -949,13 +951,18 @@ export async function listUsers() {
   if (!db) return [];
   const rows = await db.select().from(users).orderBy(users.role, users.name);
   return Promise.all(
-    rows.map(async (row) => ({
+    rows.map(async row => ({
       ...row,
       // Whether this officer can sign in at all, for the admin screen. Reads
       // `authUserId` rather than a stored hash: the column is the sign-inable
       // state, and a hash's presence was never evidence of anything but that
       // one had been set.
       isProvisioned: Boolean(row.authUserId),
+      // Reported alongside `isProvisioned` rather than folded into it. A
+      // provisioned account that is pending has a Supabase identity and still
+      // cannot reach anything, and an admin list that said only "provisioned"
+      // would put those two in the same column with opposite meanings.
+      isPending: row.pendingApproval,
       references: await getUserReferences(row.id),
     }))
   );
@@ -1175,10 +1182,7 @@ export async function getUserById(id: number) {
 export async function clearAuthLink(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db
-    .update(users)
-    .set({ authUserId: null })
-    .where(eq(users.id, id));
+  await db.update(users).set({ authUserId: null }).where(eq(users.id, id));
 }
 
 export async function createUser(input: {
@@ -1211,10 +1215,17 @@ async function getUserByAuthUserIdOrOpenId(
   authUserId: string | null | undefined,
   openId: string
 ) {
-  if (authUserId) return getUserById((await listUsers()).find(u => u.authUserId === authUserId)?.id ?? -1);
+  if (authUserId)
+    return getUserById(
+      (await listUsers()).find(u => u.authUserId === authUserId)?.id ?? -1
+    );
   const db = await getDb();
   if (!db) return undefined;
-  const [row] = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
   return row;
 }
 
@@ -1233,6 +1244,85 @@ export async function setUserActive(id: number, isActive: boolean) {
   if (!db) throw new Error("Database is not available");
   await db.update(users).set({ isActive }).where(eq(users.id, id));
   return listUsers();
+}
+
+/**
+ * The row a first sign-in creates: an account that exists but grants nothing.
+ *
+ * Supabase owns sign-up, so an identity arriving here is not evidence of
+ * anything — it is a stranger who found the URL. The row is created anyway, and
+ * deliberately locked, because the alternative is worse in both directions: a
+ * signed-in officer with no row is a support call, and refusing to record the
+ * attempt means the administrator approving people has no queue to work from.
+ *
+ * `staff` is the least privileged tier and is the role an approved account gets
+ * unless an administrator changes it during approval. It grants nothing while
+ * `pendingApproval` stands, so the choice is close to cosmetic — it is made here
+ * so that approving does not have to also decide a role.
+ *
+ * `onConflictDoNothing` on `authUserId` rather than a plain insert: two requests
+ * from the same person at once is ordinary (a double-tapped submit, a prefetch
+ * racing the first navigation) and the unique constraint is already the rule
+ * that one identity is one officer. Losing that race is not an error; the row
+ * the other request wrote is the correct answer.
+ */
+export async function createPendingUser(input: {
+  authUserId: string;
+  email: string | null;
+  name: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  // A display name from Supabase's metadata is whatever the person typed, and
+  // the register shows it next to matters they cannot touch. Fall back to the
+  // local part of the address, which is at least recognisable to them, and to a
+  // placeholder when there is no address either.
+  const name =
+    input.name?.trim() ||
+    input.email?.split("@")[0]?.trim() ||
+    "Awaiting approval";
+
+  await db
+    .insert(users)
+    .values({
+      // Stable and derived from the identity, so a second request for the same
+      // person collides on the same value rather than making a second row.
+      openId: `supabase:${input.authUserId}`,
+      name,
+      email: input.email,
+      loginMethod: "supabase",
+      role: "staff",
+      authUserId: input.authUserId,
+      isActive: true,
+      pendingApproval: true,
+    })
+    .onConflictDoNothing({ target: users.authUserId });
+}
+
+/**
+ * Approve a self-registered account.
+ *
+ * Clears `pendingApproval` and leaves `isActive` alone, so an administrator
+ * approving somebody who was also deactivated does not silently reactivate
+ * them. The two decisions stay separable on purpose.
+ *
+ * Returns whether a row changed, so the caller can tell "approved" from "that
+ * account was not pending" — the two need different messages, because the second
+ * usually means two administrators acted at once and the first did not lose
+ * anything.
+ */
+export async function approveUser(id: number): Promise<{ approved: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  const [row] = await db
+    .update(users)
+    .set({ pendingApproval: false })
+    .where(and(eq(users.id, id), eq(users.pendingApproval, true)))
+    .returning({ id: users.id });
+
+  return { approved: Boolean(row) };
 }
 
 export type AuditFilters = {

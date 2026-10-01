@@ -60,6 +60,7 @@ Connection settings → URI, for `DATABASE_URL` and the two GitHub secrets below
 | `pnpm db:seed`     | Create the first administrator                       |
 | `pnpm db:verify`   | Assert the schema landed and is safe                 |
 | `pnpm db:testdata` | Load the demonstration register                      |
+| `pnpm db:sql`      | Build a pasteable schema script for the SQL Editor |
 | `pnpm db:load`     | Import the pre-PostgreSQL MySQL data (one time only) |
 
 ---
@@ -185,27 +186,53 @@ as is denied.
 
 ## Accounts and sign-in
 
-Supabase owns credentials and sessions. This deployment holds no signing key of
-its own: it does not mint, verify or refresh a JWT, and there is no
-`JWT_SECRET`. Sign-in happens against Supabase from the browser; the httpOnly
-session cookie it writes is what the server reads back on each request.
+Supabase owns credentials, sessions **and sign-up**. Anyone may create an
+identity there; this platform decides what that identity is worth, and the answer
+is nothing until an administrator approves it.
 
-`users.authUserId` is the join to `auth.users`, and it is the only thing the
-request path looks an officer up by. A null is never a sign-inable state — it is
-an account that cannot sign in until an administrator provisions it, which the
-admin screen reports as unprovisioned rather than as broken. `openId` is kept
-because the audit log and the case register reference officers by it.
+On a first sign-in the app writes a `users` row with `pendingApproval` set. It is
+created by a plain INSERT on the application's own connection — no service-role
+key — which is what lets a deployment hold no key that bypasses row level
+security. Until the flag is cleared the row is refused on every request, so the
+register stays closed to strangers while an administrator gets a queue to work
+through instead of a stream of people who cannot get in.
 
-**Accounts are created by an administrator, not on first sign-in.** There is no
-public signup. A valid Supabase session with no matching row is refused rather
-than auto-provisioned, because otherwise anyone who could present a token would
-become a row in the register.
+An administrator approves from the admin screen, where pending accounts are
+badged **Awaiting approval** and the row's action is **Approve**. Approval clears
+`pendingApproval` only; the account then has whatever its `role` grants, which is
+`staff`, the least privileged tier. Setting a higher role is a separate act, so
+approving somebody cannot silently promote them.
+
+`pendingApproval` is separate from `isActive` because the two mean opposite things
+to the person locked out: "not approved yet" is routine and cleared by one click,
+"deactivated" means access was withdrawn. A suspended officer is told which one
+has happened.
+
+`users.authUserId` is the join to `auth.users` and the only thing the request path
+looks an officer up by. `openId` is kept because the audit log and the case
+register reference officers by it.
+
+**The deployment should hold no `SUPABASE_SERVICE_ROLE_KEY`.** It is needed only
+for administrator operations that go _through_ Supabase's admin API — creating an
+identity, issuing a password reset, setting a password directly. Self-registration
+and approval need none of those. If you add it for password resets, keep it out of
+`NEXT_PUBLIC_*`.
+
+### Turning sign-up on in Supabase
+
+Supabase → **Authentication → Sign In / Providers → Email**: enable signup, and
+leave **email confirmation on** so only someone who controls the address can
+finish creating the identity.
+
+To keep the register completely closed instead, leave signup off — then every
+account has to be created by an administrator, which needs the service role on the
+deployment after all.
 
 ### The first account
 
 An empty database has nobody in it, and nothing in the application can create the
-first user — the admin screen that creates accounts sits behind a capability only
-an administrator already holds. So it is made from outside, once:
+first _administrator_ — the admin screen sits behind a capability only an
+administrator already holds. So it is made from outside, once:
 
 ```bash
 DATABASE_URL=... \
@@ -214,28 +241,16 @@ SEED_ADMIN_EMAIL=you@example.org \
 pnpm db:seed
 ```
 
-It creates one `super_admin`. Re-running it changes nothing unless
-`SEED_ADMIN_PASSWORD` is offered again, which is how a lost password is replaced.
+This is the one place the service role is genuinely needed, and it is a command on
+an operator's machine rather than something the running deployment holds.
+Re-running it changes nothing unless `SEED_ADMIN_PASSWORD` is offered again, which
+is how a lost password is replaced. `SEED_ADMIN_EMAIL` must be an address that can
+receive a password reset: it is where Supabase sends one, and in production the
+seed refuses to run at the `example.com` default rather than create the one
+account that cannot be recovered.
 
-`SEED_ADMIN_EMAIL` matters more than it looks: it is where Supabase sends a
-password reset. Seeded at the `example.com` default, the one account that can
-unlock the platform cannot be recovered by the only documented route — so in
-production the seed refuses to run at that address at all.
-
-### Adding the other officers
-
-From the admin screen once signed in. That path creates the Supabase identity
-first and the register row second, and removes the identity again if the row
-fails — so a failed creation never leaves an account that occupies the address
-and cannot sign in.
-
-Passwords are optional. Left out, the officer sets their own via a reset link,
-which means no administrator ever handles somebody else's credential. Where SMTP
-is not configured, an administrator can set a password directly; that is a
-deliberate fallback rather than a convenience, because an officer locked out of a
-disciplinary register is a problem that waits for no one.
-
----
+After that, everyone else signs up themselves and is approved from the admin
+screen.
 
 ## Demonstration data
 
