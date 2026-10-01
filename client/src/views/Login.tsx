@@ -284,6 +284,12 @@ function LoginForm() {
         // officer whether the address exists, which is the answer an outsider
         // needs to enumerate the Commission's staff, and it saves nobody any
         // time: the fix is the same either way.
+        //
+        // Logged, though, which the screen text is not. "Email not confirmed"
+        // and "Invalid login credentials" have completely different fixes and
+        // the officer cannot get from one to the other without opening the
+        // console, so at least the console should say which it was.
+        console.warn("[Auth] sign-in rejected:", signInError.message);
         setError("That email address and password were not accepted.");
         return;
       }
@@ -293,7 +299,15 @@ function LoginForm() {
       // client-side cache. `next` is same-origin relative or it would have been
       // dropped by the sign-in screen's own check before reaching here.
       window.location.assign(next ?? "/");
-    } catch {
+    } catch (error) {
+      // Logged before it is replaced by a generic sentence, because this branch
+      // fires on anything thrown — including exceptions raised *after* Supabase
+      // accepted the password, when the session cookie is being written. "The
+      // sign-in service could not be reached" sends the reader to check their
+      // network, and the network is usually fine: an extension blocking
+      // *.supabase.co, or a browser refusing the cookie, throws here while the
+      // credential was good.
+      console.error("[Auth] sign-in threw:", error);
       setError(
         "The sign-in service could not be reached. Try again in a moment."
       );
