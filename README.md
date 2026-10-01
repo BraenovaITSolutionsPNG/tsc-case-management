@@ -101,12 +101,13 @@ gh secret set DATABASE_CA_CERT -R <owner>/<repo>
   only an AAAA record and a hosted runner has no IPv6 route, so the connection
   dies with `ENETUNREACH` before a statement runs. Not the transaction pooler,
   for the reason above.
-- `DATABASE_CA_CERT` — the PEM from Dashboard → Database → SSL Configuration
-  (**pooler connections**). The pooler presents a certificate signed by Supabase's
-  own CA, not a public one, so the runner's trust store cannot verify it and the
-  connection fails with `SELF_SIGNED_CERT_IN_CHAIN`. A CA certificate is public,
-  so storing it as a secret is harmless; the workflow refuses to run without it,
-  because a missing secret and a wrong one look identical in the log.
+- `DATABASE_CA_CERT` — the server root certificate from Dashboard → Database →
+  SSL Configuration, labelled `prod-ca-2021.crt` and downloaded from that page.
+  Supabase's own CA, not a public one, so the runner's trust store cannot verify
+  the pooler's certificate and the connection fails with
+  `SELF_SIGNED_CERT_IN_CHAIN`. A CA certificate is public, so storing it as a
+  secret is harmless; the workflow refuses to run without it, because a missing
+  secret and a wrong one look identical in the log.
 
 **Locally**, only if your network can reach Postgres:
 
@@ -315,7 +316,7 @@ workflow; the app needs the pooler reachable, so use `docker compose up -d`.
 
 **`SELF_SIGNED_CERT_IN_CHAIN` in the migration job.**
 `DATABASE_CA_CERT` is unset or wrong. It must be the PEM from Dashboard →
-Database → SSL Configuration, _pooler_ connections.
+Database → SSL Configuration (the server root certificate, `prod-ca-2021.crt`).
 
 **Sign-in works, then every officer is refused.**
 The session resolved no `users` row: either `authUserId` is null (unprovisioned —
