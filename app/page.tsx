@@ -19,7 +19,7 @@ import { getServerTrpc } from "@server/_core/serverTrpc";
  * ordering the only possible one.
  */
 
-// Drizzle and MySQL need the Node runtime, and reading the session cookie makes
+// Drizzle and the PostgreSQL driver need the Node runtime, and reading the session cookie makes
 // the segment per-request, so there is no cacheable version of this page.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

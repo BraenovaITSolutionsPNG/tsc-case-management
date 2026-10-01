@@ -1,15 +1,16 @@
 # Apply the schema in drizzle/ to the deployed database.
 #
-# The platform runs on the provider for MySQL, whose port is not one a laptop's
-# network necessarily lets through, so `pnpm db:push` on a development
-# machine is not a reliable way to migrate. A GitHub runner can reach it, and
-# the runner is the same on every machine, which also means the schema is
-# applied the same way by whoever pushes.
+# The platform runs on Supabase, and migrating it from a laptop is not something
+# to rely on: the direct connection has to be reachable, and the result should be
+# the same whoever pushes. A GitHub runner is the same on every machine, which
+# settles both.
 #
-# Secrets: DATABASE_URL and DATABASE_CA_CERT, both repository secrets. The
-# second is the provider project CA, which is public - it is in the repository at
-# database/db-ca.crt - but it is passed the same way so the runner needs no
-# path resolution at run time and the two credentials stay symmetric.
+# DATABASE_URL must be the *direct* connection (Supabase's 5432), not the session
+# pooler on 6543. DDL runs in a transaction and the pooler discards the backend
+# between transactions, so a migration sent through the pooler fails partway
+# through with the schema half applied.
+#
+# Secrets: DATABASE_URL, a repository secret holding that 5432 string.
 name: db push
 on:
   workflow_dispatch:
@@ -20,6 +21,8 @@ on:
       - drizzle.config.ts
       - server/_core/databaseConnection.ts
       - scripts/verify-schema.ts
+      - package.json
+      - pnpm-lock.yaml
       - .github/workflows/db-push.yml
 concurrency:
   # Two migrations against one database at once is how a half-applied schema
@@ -31,7 +34,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
+      # Supabase's certificate chains to a public CA, so the host trust store
+      # verifies it and no CA file is needed. Named here so the one thing that
+      # would have to change if that ever stops being true is visible.
+      DATABASE_SSL: require
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

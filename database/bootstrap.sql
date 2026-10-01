@@ -1,34 +1,49 @@
--- MariaDB bootstrap for the TSC Case Management platform.
+-- PostgreSQL bootstrap for the TSC Case Management platform.
 --
--- Creates the database, the application user, and the grants the app needs.
--- Safe to re-run: every statement is IF NOT EXISTS / idempotent.
+-- Creates the application role and grants it the schema. Safe to re-run: every
+-- statement is IF NOT EXISTS / idempotent.
 --
---   mariadb -u root < database/bootstrap.sql
+--   psql -U postgres < database/bootstrap.sql
 --
 -- The password below is the development default and must match DATABASE_URL in
 -- .env. It is deliberately not a secret: this file exists so a developer can
 -- reproduce the local database, not to hold production credentials. Use a
 -- generated secret and an environment-injected password for any real deployment.
 --
--- Verified against MariaDB 12.3.3.
+-- Verified against PostgreSQL 17.
 
-CREATE DATABASE IF NOT EXISTS `tsc_case_management`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+-- The database itself is created by the container's POSTGRES_DB, which runs
+-- before this file. What is left is the role the application connects as, which
+-- is kept separate from the superuser so the app cannot create databases, roles
+-- or extensions.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tsc') THEN
+    CREATE ROLE tsc LOGIN PASSWORD 'tsc_dev_password';
+  END IF;
+END
+$$;
 
--- 'localhost' covers the unix socket, 127.0.0.1 the TCP connection the app uses.
-CREATE USER IF NOT EXISTS 'tsc'@'localhost' IDENTIFIED BY 'tsc_dev_password';
-CREATE USER IF NOT EXISTS 'tsc'@'127.0.0.1' IDENTIFIED BY 'tsc_dev_password';
+-- CREATE on the database, not just CONNECT: `drizzle-kit migrate` runs
+-- `CREATE SCHEMA IF NOT EXISTS "drizzle"` to keep its migration journal, and
+-- creating a schema is a database-level privilege rather than a schema-level
+-- one. Without it the first migration fails with "permission denied for
+-- database tsc_case_management" before any application table is attempted.
+--
+-- On Supabase this is already true of the `postgres` role, which is the role
+-- its connection strings use, so this file's grants matter only for the local
+-- service.
+GRANT CONNECT, CREATE ON DATABASE tsc_case_management TO tsc;
 
-GRANT ALL PRIVILEGES ON `tsc_case_management`.* TO 'tsc'@'localhost';
-GRANT ALL PRIVILEGES ON `tsc_case_management`.* TO 'tsc'@'127.0.0.1';
+-- Schema-level rights. The tables are created by the migrations, which run as
+-- whichever role holds DATABASE_URL, so `tsc` needs to be able to create them
+-- in a fresh database.
+GRANT USAGE, CREATE ON SCHEMA public TO tsc;
 
-FLUSH PRIVILEGES;
-
--- Note on timezones: this instance also serves other databases, so the script
--- deliberately does not touch the global time_zone. The app stores and reads
--- every timestamp through mysql2/drizzle and does its own date arithmetic in
--- JS, so it is timezone-agnostic — but a `timestamp` column is converted using
--- the server's zone, so keep the server zone stable across deployments or the
--- displayed dates will shift.
-
+-- Note on timezones: the app stores and reads every timestamp through
+-- node-postgres/drizzle and does its own date arithmetic in JS. A `timestamp`
+-- column (without time zone) carries no zone of its own, so the values it holds
+-- are exactly the instants the app wrote — unlike MySQL's `timestamp`, which
+-- converted on the server's zone. Keep this in mind when reading a value out of
+-- the database by hand: it is UTC as written, and `SELECT now()` is in the
+-- server's zone.

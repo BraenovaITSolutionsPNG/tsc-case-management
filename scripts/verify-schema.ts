@@ -3,7 +3,7 @@
 // environment when it is asked for rather than at import time.
 import "dotenv/config";
 import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
 import {
   databaseCredentials,
   describeTls,
@@ -27,14 +27,19 @@ import {
  */
 async function main() {
   const db = drizzle({ connection: databaseCredentials() });
+  // `current_schema()` rather than a literal 'public': the schema holding the
+  // application's tables is whichever one the connection resolves to, and
+  // hardcoding 'public' would report an empty list against a project configured
+  // otherwise — a false "schema not applied" for a database that is fine.
   const result = await db.execute(sql`
     SELECT table_name AS name FROM information_schema.tables
-    WHERE table_schema = DATABASE() ORDER BY table_name`);
-  // The mysql2 driver returns a [rows, fields] tuple for a plain query.
-  const rows = (
-    Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result
-  ) as { name: string }[];
-  const tables = rows.map(row => row.name);
+    WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
+    ORDER BY table_name`);
+  // node-postgres hands back a QueryResult whose `rows` are the result set. The
+  // MySQL driver returned a bare array, which is why this is not one.
+  const tables = (result as unknown as { rows: { name: string }[] }).rows.map(
+    row => row.name
+  );
 
   console.log(`[schema] connected over ${describeTls()}`);
   console.log(

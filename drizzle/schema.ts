@@ -1,17 +1,90 @@
 import {
   boolean,
   index,
-  int,
-  mysqlEnum,
-  mysqlTable,
+  integer,
+  pgEnum,
+  pgTable,
+  serial,
   text,
   timestamp,
   varchar,
-} from "drizzle-orm/mysql-core";
+} from "drizzle-orm/pg-core";
+
+// The `updatedAt` columns above use `$onUpdateFn` where MySQL had
+// `onUpdateNow()`. The two are not the same mechanism and the difference
+// matters: MySQL applied `ON UPDATE CURRENT_TIMESTAMP` in the database, so it
+// fired for any UPDATE that reached the table — including one written by hand in
+// a SQL client or a future script. `$onUpdateFn` is applied by Drizzle when it
+// builds an update statement, so it fires for every write that goes through this
+// schema and not for one that bypasses it. For an application's own writes the
+// two behave identically, which is all this schema covers.
+
+export const caseStatusValues = [
+  "NEW",
+  "VER",
+  "INV",
+  "REF",
+  "ADV",
+  "DEC",
+  "LEG",
+  "ACT",
+  "RES",
+  "CLS",
+  "ESC",
+] as const;
+
+// The matter classifications live in shared/matters.ts and are imported rather
+// than restated, so the enum the database stores and the list the interface
+// offers cannot drift apart. Re-exported so existing `@shared/types` importers
+// keep resolving them from the schema as they always have.
+import {
+  matterTypeValues,
+  provinceValues,
+} from "../shared/matters";
+export { matterTypeValues, provinceValues };
+
+// PostgreSQL enum types are schema-level objects in a single namespace, not a
+// per-column attribute the way MySQL's inline enum was. Two columns both called
+// `status` — a matter's status and a referral's status, which are unrelated
+// lists — would collide on the type name, so the types are given distinct names
+// while the columns keep the names the application already uses.
+//
+// Each is declared here and referenced as a column below rather than inlined,
+// because `pgEnum(name, values)` returns the *type*; the column is made by
+// calling it. See the usage of `userRole` and `caseStatus` below.
+export const userRole = pgEnum("user_role", [
+  "staff",
+  "assistant",
+  "commissioner",
+  "admin",
+  "super_admin",
+]);
+
+export const caseStatus = pgEnum("case_status", [
+  "NEW",
+  "VER",
+  "INV",
+  "ADV",
+  "REF",
+  "DEC",
+  "LEG",
+  "ACT",
+  "RES",
+  "CLS",
+  "ESC",
+]);
+
+export const matterTypeEnum = pgEnum("matter_type", matterTypeValues);
+export const casePriority = pgEnum("case_priority", ["normal", "urgent"]);
+export const referralStatus = pgEnum("referral_status", [
+  "pending",
+  "received",
+  "overdue",
+]);
 
 /** Core user table backing the Manus authentication flow. */
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -39,15 +112,7 @@ export const users = mysqlTable("users", {
   // `assistant` is the Professional Assistant to the Director (§12), the role
   // that maintains and monitors the central register. See ROLE_VALUES in
   // shared/roles.ts.
-  role: mysqlEnum("role", [
-    "staff",
-    "assistant",
-    "commissioner",
-    "admin",
-    "super_admin",
-  ])
-    .default("staff")
-    .notNull(),
+  role: userRole("role").default("staff").notNull(),
   /**
    * Storage key for the officer's uploaded profile image, or null. Same S3
    * object store the case file uses, so the image is served from
@@ -58,58 +123,32 @@ export const users = mysqlTable("users", {
   // Deactivated accounts keep their history but can no longer sign in.
   isActive: boolean("isActive").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdateFn(() => new Date()),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
-export const caseStatusValues = [
-  "NEW",
-  "VER",
-  "INV",
-  "REF",
-  "ADV",
-  "DEC",
-  "LEG",
-  "ACT",
-  "RES",
-  "CLS",
-  "ESC",
-] as const;
-
-// The matter classifications live in shared/matters.ts and are imported rather
-// than restated, so the enum the database stores and the list the interface
-// offers cannot drift apart. Re-exported so existing `@shared/types` importers
-// keep resolving them from the schema as they always have.
-import {
-  matterTypeValues,
-  provinceValues,
-} from "../shared/matters";
-export { matterTypeValues, provinceValues };
-
-export const cases = mysqlTable("cases", {
-  id: int("id").autoincrement().primaryKey(),
+export const cases = pgTable("cases", {
+  id: serial("id").primaryKey(),
   caseNumber: varchar("caseNumber", { length: 32 }).notNull().unique(),
-  year: int("year").notNull(),
+  year: integer("year").notNull(),
   province: varchar("province", { length: 64 }).notNull(),
   dateReceived: timestamp("dateReceived").notNull(),
   teacherName: varchar("teacherName", { length: 160 }).notNull(),
   employeeReference: varchar("employeeReference", { length: 80 }),
-  matterType: mysqlEnum("matterType", matterTypeValues).notNull(),
+  matterType: matterTypeEnum("matterType").notNull(),
   matterSummary: text("matterSummary").notNull(),
-  assignedOfficerId: int("assignedOfficerId"),
+  assignedOfficerId: integer("assignedOfficerId"),
   assignedOfficerName: varchar("assignedOfficerName", { length: 160 }),
   sectionReferred: varchar("sectionReferred", { length: 120 }),
   dateReferred: timestamp("dateReferred"),
-  status: mysqlEnum("status", caseStatusValues).default("NEW").notNull(),
+  status: caseStatus("status").default("NEW").notNull(),
   actionRequired: text("actionRequired"),
   dueDate: timestamp("dueDate"),
   outcome: text("outcome"),
   dateClosed: timestamp("dateClosed"),
-  priority: mysqlEnum("priority", ["normal", "urgent"])
-    .default("normal")
-    .notNull(),
+  priority: casePriority("priority").default("normal").notNull(),
   // §14 escalation ladder: 0 = officer, 6 = Legal Section / Commission.
-  escalationLevel: int("escalationLevel").default(0).notNull(),
+  escalationLevel: integer("escalationLevel").default(0).notNull(),
   // §12C case brief prepared before a matter is presented to the Director.
   briefIssue: text("briefIssue"),
   briefBackground: text("briefBackground"),
@@ -124,14 +163,14 @@ export const cases = mysqlTable("cases", {
   // §15 the officer who referred the matter, mirrored for register display.
   referredByName: varchar("referredByName", { length: 160 }),
   dateReferredAt: timestamp("dateReferredAt"),
-  createdById: int("createdById").notNull(),
+  createdById: integer("createdById").notNull(),
   createdByName: varchar("createdByName", { length: 160 }),
   receivedByName: varchar("receivedByName", { length: 160 }),
   processedByName: varchar("processedByName", { length: 160 }),
   decidedByName: varchar("decidedByName", { length: 160 }),
   communicatedByName: varchar("communicatedByName", { length: 160 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdateFn(() => new Date()),
 }, (table) => [
     // The register list. Every page of the case register sorts on updatedAt and
     // most visits filter to one status, so status leads and updatedAt follows -
@@ -148,12 +187,12 @@ export const cases = mysqlTable("cases", {
     index("cases_province_idx").on(table.province),
   ]);
 
-export const caseEvents = mysqlTable("caseEvents", {
-  id: int("id").autoincrement().primaryKey(),
-  caseId: int("caseId").notNull(),
+export const caseEvents = pgTable("caseEvents", {
+  id: serial("id").primaryKey(),
+  caseId: integer("caseId").notNull(),
   eventType: varchar("eventType", { length: 64 }).notNull(),
   note: text("note").notNull(),
-  actorId: int("actorId").notNull(),
+  actorId: integer("actorId").notNull(),
   actorName: varchar("actorName", { length: 160 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
@@ -171,9 +210,9 @@ export const caseEvents = mysqlTable("caseEvents", {
     index("caseEvents_createdAt_idx").on(table.createdAt),
   ]);
 
-export const referrals = mysqlTable("referrals", {
-  id: int("id").autoincrement().primaryKey(),
-  caseId: int("caseId").notNull(),
+export const referrals = pgTable("referrals", {
+  id: serial("id").primaryKey(),
+  caseId: integer("caseId").notNull(),
   destination: varchar("destination", { length: 120 }).notNull(),
   reason: text("reason").notNull(),
   // §5 which triggers applied, comma separated keys from REFERRAL_CRITERIA.
@@ -192,10 +231,8 @@ export const referrals = mysqlTable("referrals", {
   statementVerified: text("statementVerified"),
   statementUnresolved: text("statementUnresolved"),
   statementAdviceRequired: text("statementAdviceRequired"),
-  status: mysqlEnum("status", ["pending", "received", "overdue"])
-    .default("pending")
-    .notNull(),
-  referredById: int("referredById").notNull(),
+  status: referralStatus("status").default("pending").notNull(),
+  referredById: integer("referredById").notNull(),
   referredByName: varchar("referredByName", { length: 160 }),
 }, (table) => [
   // A matter's referral history, newest first, and "referrals this officer
@@ -215,18 +252,18 @@ export const referrals = mysqlTable("referrals", {
  * containing:" - eleven classes of document. The class drives the closure
  * checklist rather than a free-text attachment list.
  */
-export const caseDocuments = mysqlTable("caseDocuments", {
-  id: int("id").autoincrement().primaryKey(),
-  caseId: int("caseId").notNull(),
+export const caseDocuments = pgTable("caseDocuments", {
+  id: serial("id").primaryKey(),
+  caseId: integer("caseId").notNull(),
   documentClass: varchar("documentClass", { length: 64 }).notNull(),
   title: varchar("title", { length: 200 }).notNull(),
   // Storage key for the uploaded object, or null for a logged-only entry.
   fileKey: varchar("fileKey", { length: 255 }),
   fileName: varchar("fileName", { length: 200 }),
-  fileSize: int("fileSize"),
+  fileSize: integer("fileSize"),
   mimeType: varchar("mimeType", { length: 120 }),
   note: text("note"),
-  loggedById: int("loggedById").notNull(),
+  loggedById: integer("loggedById").notNull(),
   loggedByName: varchar("loggedByName", { length: 160 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [

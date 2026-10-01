@@ -2,8 +2,8 @@ import {
   and,
   desc,
   eq,
+  ilike,
   isNotNull,
-  like,
   lt,
   notInArray,
   or,
@@ -11,7 +11,7 @@ import {
   count,
 } from "drizzle-orm";
 import { CLOSED_STATUSES, isOpenStatus, isOverdue } from "../shared/statuses";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
 import {
   caseDocuments,
   caseEvents,
@@ -32,27 +32,23 @@ let _flavourChecked = false;
  * The server we actually reached, once per process, and how the connection to it
  * is secured.
  *
- * The platform speaks the MySQL wire protocol, and both MariaDB and MySQL 8 —
- * which is what a hosted the provider service runs — answer to it, so nothing in the
- * config distinguishes them. That is precisely why it is worth saying out loud
- * which one answered: a schema written for MariaDB and applied to MySQL 8 (or
- * the reverse) is a mistake that otherwise surfaces as an unexplained error
- * much later. The TLS line is the same idea from the other end, because
+ * This used to distinguish MariaDB from MySQL 8, which mattered because a schema
+ * written for one and applied to the other fails in ways that surface much later
+ * and read as something else entirely. PostgreSQL has no equivalent fork to
+ * guess at — there is one dialect — so the version is reported rather than
+ * classified. The TLS line is the same idea from the other end, because
  * "encrypted" and "not encrypted" are otherwise the same silence.
  */
 async function logServerFlavour(db: NonNullable<ReturnType<typeof drizzle>>) {
   if (_flavourChecked) return;
   _flavourChecked = true;
   try {
-    const result = await db.execute(sql`SELECT VERSION() AS version`);
-    // The mysql2 driver returns a [rows, fields] tuple for a plain query.
-    const rows =
-      Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
-    const version = (rows as { version?: string }[])?.[0]?.version ?? "unknown";
-    const flavour = /mariadb/i.test(version) ? "MariaDB" : "MySQL-compatible";
-    console.log(
-      `[Database] Connected to ${flavour} ${version} — ${describeTls()}`
-    );
+    const result = await db.execute(sql`SELECT version() AS version`);
+    // node-postgres hands back a QueryResult; the rows are on `.rows`. The MySQL
+    // driver returned a bare array instead, which is why this is not one.
+    const rows = (result as unknown as { rows: { version?: string }[] }).rows;
+    const version = rows?.[0]?.version ?? "unknown";
+    console.log(`[Database] Connected to PostgreSQL ${version} — ${describeTls()}`);
   } catch (error) {
     console.warn("[Database] Could not determine server version:", error);
   }
@@ -126,10 +122,18 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   values.lastSignedIn ??= new Date();
   if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
+  // `onConflictDoUpdate` keyed on `openId`, which is the unique constraint this
+  // upsert has always meant. MySQL's `onDuplicateKeyUpdate` had no conflict
+  // target and relied on any unique key being violated; PostgreSQL requires the
+  // column to be named, because "any unique constraint" is not a statement it
+  // can act on without inspecting the table first.
   await db
     .insert(users)
     .values(values)
-    .onDuplicateKeyUpdate({ set: updateSet });
+    .onConflictDoUpdate({
+      target: users.openId,
+      set: updateSet,
+    });
 }
 
 /**
@@ -182,10 +186,16 @@ function caseConditions(filters: CaseListFilters) {
     // Both the reference and the teacher's name, because that is what the search
     // box on the register offers: an officer looking for "the Kava matter" and
     // an officer looking for a reference are looking for the same row.
+    // `ilike`, not `like`: the search box has always been case-insensitive, and
+    // it was case-insensitive for a database reason rather than an application
+    // one. MySQL's utf8mb4_unicode_ci collation made LIKE fold case on these
+    // columns for free, and PostgreSQL's LIKE is case-sensitive, so porting the
+    // query unchanged would silently narrow the search: an officer typing
+    // "kava" would stop finding the Kava matter.
     conditions.push(
       or(
-        like(cases.caseNumber, `%${filters.search}%`),
-        like(cases.teacherName, `%${filters.search}%`)
+        ilike(cases.caseNumber, `%${filters.search}%`),
+        ilike(cases.teacherName, `%${filters.search}%`)
       )
     );
   }
@@ -383,10 +393,15 @@ export async function createCase(
   const existing = await db
     .select({ caseNumber: cases.caseNumber })
     .from(cases)
-    .where(like(cases.caseNumber, `${prefix}%`));
+    .where(ilike(cases.caseNumber, `${prefix}%`));
   // §1: PM/NCD/2026/00001 - five sequential digits. Derive the next number from
   // the highest existing one rather than the row count, so a deleted matter
   // never causes a collision with the unique caseNumber constraint.
+  //
+  // `ilike` rather than `like` because the province code is upper-cased but a
+  // matter numbered before that convention settled may hold a lower-case
+  // province, and missing one would hand the next matter a duplicate prefix and
+  // then a unique-constraint failure on caseNumber.
   const highest = existing.reduce((max, row) => {
     const sequence = Number.parseInt(row.caseNumber.slice(prefix.length), 10);
     return Number.isFinite(sequence) && sequence > max ? sequence : max;
@@ -991,17 +1006,23 @@ export async function getUserByLocalUsername(username: string) {
   const normalised = username.trim().toLowerCase();
   if (!normalised) return undefined;
 
+  // `ilike` for the same reason as the register search above: the uniqueness of
+  // a username, and the reach of an email prefix, were both inherited from
+  // MySQL's case-insensitive collation rather than decided here. This one is
+  // load-bearing in a way search is not — it is a step on the sign-in path, and
+  // an officer typing "R.Kivuva" would be told their password was wrong when
+  // their account exists.
   const [byUsername] = await db
     .select()
     .from(users)
-    .where(eq(users.username, normalised))
+    .where(ilike(users.username, normalised))
     .limit(1);
   if (byUsername) return byUsername;
 
   const [byEmail] = await db
     .select()
     .from(users)
-    .where(like(users.email, `${normalised}@%`))
+    .where(ilike(users.email, `${normalised}@%`))
     .limit(1);
   if (byEmail) return byEmail;
 
@@ -1226,14 +1247,15 @@ export async function listAuditLog(filters: AuditFilters = {}) {
   }
   if (search) {
     // The note, the reference, the teacher and the officer who acted: the four
-    // things the box on the audit screen says it searches.
+    // things the box on the audit screen says it searches. `ilike` because this
+    // box has always been case-insensitive — see the register search above.
     const term = `%${search}%`;
     conditions.push(
       or(
-        like(caseEvents.note, term),
-        like(caseEvents.actorName, term),
-        like(cases.caseNumber, term),
-        like(cases.teacherName, term)
+        ilike(caseEvents.note, term),
+        ilike(caseEvents.actorName, term),
+        ilike(cases.caseNumber, term),
+        ilike(cases.teacherName, term)
       )
     );
   }
