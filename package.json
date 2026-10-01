@@ -13,6 +13,7 @@
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx server/seed.ts",
+    "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "db:verify": "tsx scripts/verify-schema.ts",
     "db:sql": "tsx scripts/build-schema-sql.ts",
     "db:testdata": "tsx scripts/load-test-data.ts",
