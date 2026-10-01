@@ -89,7 +89,7 @@ export function AvatarUpload({
           // response is a signed redirect, not an optimisable asset.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`/manus-storage/${avatarKey}`}
+            src={`/files/${avatarKey}`}
             alt={name ? `${name}'s photo` : "Officer photo"}
             // The photo is square and the box around it is fixed at `size`, so
             // the dimensions are stated rather than left to layout. The

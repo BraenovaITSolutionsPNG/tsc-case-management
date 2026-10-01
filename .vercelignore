@@ -18,7 +18,6 @@
 # The dev server's build directory. Distinct from .next because `pnpm dev` writes
 # to .next-dev; uploading it would ship a half-built dev bundle to the builder.
 .next-dev/
-.manus-logs/
 
 # --- The pre-PostgreSQL data ---
 # Restated here rather than inherited from .gitignore, because Vercel reads THIS

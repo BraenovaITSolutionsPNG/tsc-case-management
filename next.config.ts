@@ -23,16 +23,6 @@ const nextConfig: NextConfig = {
   // the standalone/serverless bundles drop them.
   outputFileTracingRoot: import.meta.dirname,
 
-  // The Manus OAuth portal serves a preview from a wildcard host. Accepting the
-  // same host list the Vite server did keeps the callback origin stable.
-  allowedDevOrigins: [
-    ".manuspre.computer",
-    ".manus.computer",
-    ".manus-asia.computer",
-    ".manuscomputer.ai",
-    ".manusvm.computer",
-  ],
-
   // No `eslint` key. Next 16 removed support for it and warns on every build
   // that it is present, which is the worst kind of warning: it trains you to
   // ignore the output of the build. It was only ever here to skip linting, and

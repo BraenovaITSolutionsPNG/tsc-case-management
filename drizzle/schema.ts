@@ -82,7 +82,13 @@ export const referralStatus = pgEnum("referral_status", [
   "overdue",
 ]);
 
-/** Core user table backing the Manus authentication flow. */
+/**
+ * The register of accounts.
+ *
+ * `openId` holds the Supabase user uuid, as `supabase:<uuid>`; the platform has
+ * no OAuth flow of its own. `authUserId` is the same uuid unadorned, and is the
+ * column sign-in resolves against — see server/_core/supabaseSession.ts.
+ */
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
@@ -125,7 +131,7 @@ export const users = pgTable("users", {
   /**
    * Storage key for the officer's uploaded profile image, or null. Same S3
    * object store the case file uses, so the image is served from
-   * /manus-storage/{avatarKey} like every other document. Null means the account
+   * /files/{avatarKey} like every other document. Null means the account
    * has never uploaded one and the interface shows the initial.
    */
   avatarKey: varchar("avatarKey", { length: 255 }),
