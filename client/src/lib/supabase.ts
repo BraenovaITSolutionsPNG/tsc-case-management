@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { isSupabaseUrl, supabaseUrlFault } from "@shared/supabaseUrl";
 
 /**
  * The browser's Supabase client.
@@ -23,13 +24,21 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 let client: ReturnType<typeof createBrowserClient> | null = null;
 
 /**
- * False when this deployment was built without Supabase configuration.
+ * False when this deployment was built without usable Supabase configuration.
  *
  * The sign-in screen checks this before offering a form, because a form that
  * cannot work is worse than an explanation. It is a build-time fact, so it does
  * not change while the page is open.
+ *
+ * "Usable" as well as "present", and for the same reason as the server's
+ * equivalent in `server/_core/supabaseAuth.ts`: a build that inlined a mangled
+ * project URL is not configured, however non-empty that URL is. Judged by the
+ * shared check so the two ends cannot come to opposite conclusions about one
+ * deployment.
  */
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(
+  isSupabaseUrl(supabaseUrl) && supabaseAnonKey
+);
 
 /**
  * The singleton client, created on first use.
@@ -39,6 +48,10 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
  * `createBrowserClient` has no server-side cookie jar to attach to.
  */
 export function getSupabaseBrowserClient() {
+  const urlFault = supabaseUrlFault(supabaseUrl, "NEXT_PUBLIC_SUPABASE_URL");
+  if (urlFault) {
+    throw new Error(urlFault);
+  }
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(
       "Supabase is not configured on this deployment. Sign-in is unavailable."

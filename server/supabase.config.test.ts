@@ -107,6 +107,43 @@ describe("a deployment with no Supabase configuration", () => {
 
     expect(supabasePublicConfig().url).toBe("https://project.supabase.co");
   });
+
+  it("names the variable and the value when the project URL is not a URL", async () => {
+    // The deployment this was added for: both halves set, so every
+    // "is it configured?" check in the codebase answered yes, and the first
+    // sign-in attempt produced "Invalid supabaseUrl: Must be a valid HTTP or
+    // HTTPS URL" from inside the Supabase library — an error that names neither
+    // the variable nor the value, and arrives via the console warning in
+    // createContext that swallows it into a log line.
+    vi.stubEnv("SUPABASE_URL", '"https://project.supabase.co"');
+    vi.stubEnv("SUPABASE_ANON_KEY", "anon-key");
+    vi.resetModules();
+
+    const { isSupabaseConfigured, supabasePublicConfig, createServerClient } =
+      await import("./_core/supabaseAuth");
+
+    // Configured and unusable is the state this must refuse to report as
+    // configured, or the sign-in screen offers a form that cannot work.
+    expect(isSupabaseConfigured()).toBe(false);
+    expect(() => supabasePublicConfig()).toThrow(/not a URL/);
+    expect(() => supabasePublicConfig()).toThrow(
+      /SUPABASE_URL \/ NEXT_PUBLIC_SUPABASE_URL/
+    );
+    expect(() => supabasePublicConfig()).toThrow(/project\.supabase\.co/);
+    await expect(createServerClient()).rejects.toThrow(/not a URL/);
+  });
+
+  it("still calls a missing URL unconfigured rather than malformed", async () => {
+    // The other fault, and it must not be reported as this one: the fix for an
+    // unset variable is to set it, not to go looking for stray quotes in it.
+    vi.stubEnv("SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_ANON_KEY", "anon-key");
+    vi.resetModules();
+
+    const { supabasePublicConfig } = await import("./_core/supabaseAuth");
+
+    expect(() => supabasePublicConfig()).toThrow(/not configured/i);
+  });
 });
 
 describe("the NEXT_PUBLIC_ and server-side names", () => {
