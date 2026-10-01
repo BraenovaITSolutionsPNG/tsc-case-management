@@ -14,6 +14,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx server/seed.ts",
     "db:verify": "tsx scripts/verify-schema.ts",
+    "db:sql": "tsx scripts/build-schema-sql.ts",
     "db:testdata": "tsx scripts/load-test-data.ts",
     "db:convert": "python3 scripts/mysql-to-postgres.py database/tsc_case_management_dump.sql database/postgres-load.sql",
     "db:load": "pnpm db:convert && psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f database/postgres-load.sql"
