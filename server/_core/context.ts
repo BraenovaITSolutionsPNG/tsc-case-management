@@ -34,11 +34,26 @@ export type TrpcResponse = {
 /**
  * `user` is the request identity and is returned to the client by `auth.me`, so
  * it is typed as AuthenticatedUser, which excludes the stored credential.
+ *
+ * `refusal` is why `user` is null when the caller did present a session, and is
+ * null whenever there was no session or the session was good.
+ *
+ * It exists for the officer whose sign-in is refused. `auth.me` answers null
+ * either way, so without this the sign-in screen shows its form again — to
+ * somebody who has just typed a correct password into it, and who will conclude
+ * the password is wrong. The two causes need opposite responses: a deactivated
+ * officer needs an administrator, and an unlinked identity needs one too, but
+ * neither is fixable at the keyboard.
+ *
+ * Optional rather than required so the places that build a context by hand,
+ * chiefly the tests, do not all have to state it. Absent and null mean the same
+ * thing, which is what every reader wants.
  */
 export type TrpcContext = {
   req: TrpcRequest;
   res: TrpcResponse;
   user: AuthenticatedUser | null;
+  refusal?: string | null;
 };
 
 /**
@@ -54,6 +69,7 @@ export async function createContext(
   req: TrpcRequest
 ): Promise<TrpcContextWithCookies> {
   let user: AuthenticatedUser | null = null;
+  let refusal: string | null = null;
 
   try {
     user = await authenticateSupabaseRequest();
@@ -63,11 +79,29 @@ export async function createContext(
     // a deployment with no Supabase configuration fails here on every request,
     // and a silent `user = null` would present that as "everyone is signed out"
     // instead of "this deployment is misconfigured".
-    console.warn("[Auth] Could not resolve the Supabase session:", String(error));
+    console.warn(
+      "[Auth] Could not resolve the Supabase session:",
+      String(error)
+    );
+    // Kept, so the sign-in screen can say what happened instead of showing a
+    // form to somebody who has already proved who they are.
+    //
+    // `error.message` rather than `String(error)`: the latter prefixes
+    // "Error: ", which would make the pattern below never match and silently
+    // discard every refusal while still logging it. Only the officer-facing
+    // messages are carried — the ones thrown for a misconfigured deployment are
+    // operator-facing, and those belong in the log, not on a screen.
+    const message = error instanceof Error ? error.message : String(error);
+    refusal =
+      /^(This account has not been set up|This account has been deactivated)/.test(
+        message
+      )
+        ? message
+        : null;
     user = null;
   }
 
-  return createContextFromUser(req, user);
+  return { ...createContextFromUser(req, user), refusal };
 }
 
 /**

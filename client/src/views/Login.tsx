@@ -2,6 +2,7 @@
 
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -207,6 +208,14 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const { isAuthenticated, loading } = useAuth();
+  // Null unless the server refused a session the browser holds: an identity
+  // with no register row, or an account that has been deactivated. Null for an
+  // ordinary anonymous visitor, which is why this is a second query rather than
+  // a variant of `auth.me` — most people reaching this screen have no session,
+  // and the answer they need is the form.
+  const refusal = trpc.auth.refusal.useQuery(undefined, {
+    enabled: !isAuthenticated && !loading,
+  }).data;
   const next = params.get("next") ?? undefined;
 
   // An already-signed-in officer arriving here is sent on. This is a client
@@ -300,6 +309,47 @@ function LoginForm() {
 
   if (loading || isAuthenticated) {
     return <PageLoader label="Checking your session" />;
+  }
+
+  // Signed in with Supabase, and refused by us.
+  //
+  // Reached because a correct password is not the same as an account: the row
+  // behind the session may not exist, or may have been deactivated. Both land
+  // here after `useAuth` redirects, and without this they are shown a form that
+  // will not accept them.
+  if (refusal) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[var(--login-page)] px-6">
+        <div
+          className="w-full max-w-md rounded-xl bg-[var(--login-card)] px-8 py-10 shadow-[var(--login-card-shadow)]"
+          style={PALETTE as React.CSSProperties}
+        >
+          <h2 className="text-2xl font-bold text-[var(--login-ink)]">
+            Signed in, but not set up
+          </h2>
+          <p className="mt-4 text-[0.9375rem] leading-6 text-[var(--login-body)]">
+            {refusal}
+          </p>
+          <p className="mt-4 text-[13px] leading-6 text-[var(--login-muted)]">
+            Your password was accepted — Supabase confirmed who you are. What is
+            missing is an officer record on this platform, and only an
+            administrator can add one.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-8 w-full"
+            onClick={() => {
+              void getSupabaseBrowserClient()
+                .auth.signOut()
+                .finally(() => window.location.assign("/login"));
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
+      </main>
+    );
   }
 
   if (!isSupabaseConfigured) {

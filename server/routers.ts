@@ -397,6 +397,21 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     /**
+     * Why `auth.me` answered null, when there was a session and it was refused.
+     *
+     * A separate procedure rather than a change to `auth.me`'s shape, because
+     * `me` is read in eight places and a server-side prefetch, and all of them
+     * want the officer or nothing. This one is read only by the sign-in screen,
+     * and only when `me` is null.
+     *
+     * It is for the officer who signed in correctly and was then refused —
+     * an identity with no register row, or an account that has been deactivated.
+     * Without it they are handed a sign-in form that will not accept them, which
+     * reads as a wrong password: the one conclusion the evidence does not
+     * support, and the one they will act on.
+     */
+    refusal: publicProcedure.query(opts => opts.ctx.refusal ?? null),
+    /**
      * Upload the signed-in officer's own profile image.
      *
      * The image arrives as base64 rather than as a multipart body: tRPC's
@@ -498,7 +513,10 @@ export const appRouter = router({
       // Explicit removal of the session cookies as well, in case the client
       // above could not run. Best effort: a cookie that was never set is not an
       // error to report.
-      ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 });
+      ctx.res.clearCookie(COOKIE_NAME, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: -1,
+      });
       return { success: true } as const;
     }),
   }),
@@ -1327,9 +1345,7 @@ export const appRouter = router({
           } catch (error) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: String(
-                error instanceof Error ? error.message : error
-              ),
+              message: String(error instanceof Error ? error.message : error),
             });
           }
         }),
@@ -1457,7 +1473,7 @@ export const appRouter = router({
           const authUserId = await getAuthUserIdForUser(input.id);
           if (authUserId) {
             await clearAuthLink(input.id);
-            await removeIdentity(authUserId).catch((error) => {
+            await removeIdentity(authUserId).catch(error => {
               // Logged, not raised: the register row is the accountability
               // record and its deletion is the requested outcome. Refusing here
               // would leave an officer's row alive because of a failure in a
@@ -1511,9 +1527,7 @@ export const appRouter = router({
           } catch (error) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: String(
-                error instanceof Error ? error.message : error
-              ),
+              message: String(error instanceof Error ? error.message : error),
             });
           }
         }),
@@ -1551,9 +1565,7 @@ export const appRouter = router({
           } catch (error) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: String(
-                error instanceof Error ? error.message : error
-              ),
+              message: String(error instanceof Error ? error.message : error),
             });
           }
           // The value is not logged. The account is, because an audit line with
