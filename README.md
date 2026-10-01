@@ -196,16 +196,17 @@ an account that cannot sign in until an administrator provisions it, which the
 admin screen reports as unprovisioned rather than as broken. `openId` is kept
 because the audit log and the case register reference officers by it.
 
-**Accounts are created by an administrator, not on first sign-in.** There is no
-public signup. A valid Supabase session with no matching row is refused rather
-than auto-provisioned, because otherwise anyone who could present a token would
-become a row in the register.
+**There is no public signup.** Supabase's own email signup is left switched off,
+and a valid Supabase session with no matching row is refused rather than
+auto-provisioned — because otherwise anyone who found the URL became a row in the
+register. Accounts are created by an administrator, which is what makes the
+register's contents attributable.
 
 ### The first account
 
 An empty database has nobody in it, and nothing in the application can create the
-first user — the admin screen that creates accounts sits behind a capability only
-an administrator already holds. So it is made from outside, once:
+first user: the admin screen that creates accounts is behind a capability only an
+administrator already holds. So it is made from outside, once:
 
 ```bash
 DATABASE_URL=... \
@@ -216,18 +217,16 @@ pnpm db:seed
 
 It creates one `super_admin`. Re-running it changes nothing unless
 `SEED_ADMIN_PASSWORD` is offered again, which is how a lost password is replaced.
-
-`SEED_ADMIN_EMAIL` matters more than it looks: it is where Supabase sends a
-password reset. Seeded at the `example.com` default, the one account that can
-unlock the platform cannot be recovered by the only documented route — so in
-production the seed refuses to run at that address at all.
+`SEED_ADMIN_EMAIL` must be an address that can receive a password reset: it is
+where Supabase sends one, and in production the seed refuses to run at the
+`example.com` default rather than create the one account that cannot be recovered.
 
 ### Adding the other officers
 
-From the admin screen once signed in. That path creates the Supabase identity
-first and the register row second, and removes the identity again if the row
-fails — so a failed creation never leaves an account that occupies the address
-and cannot sign in.
+From the admin screen, signed in as the administrator. That path creates the
+Supabase identity first and the register row second, and removes the identity
+again if the row fails — so a failed creation never leaves an account occupying
+the address that cannot sign in.
 
 Passwords are optional. Left out, the officer sets their own via a reset link,
 which means no administrator ever handles somebody else's credential. Where SMTP
@@ -235,7 +234,12 @@ is not configured, an administrator can set a password directly; that is a
 deliberate fallback rather than a convenience, because an officer locked out of a
 disciplinary register is a problem that waits for no one.
 
----
+> **This is what needs `SUPABASE_SERVICE_ROLE_KEY` on the deployment.** Creating an
+> account, issuing a reset link and setting a password directly all go through
+> Supabase's admin API, and no client can reach it without the service role. It
+> bypasses row level security, so it is a genuine privilege: set it in Vercel as a
+> **Sensitive** variable, and never give it a `NEXT_PUBLIC_` prefix. Every
+> operation that uses it is an administrator action, gated on `platform:users`.
 
 ## Demonstration data
 
@@ -265,17 +269,24 @@ refuses to write a register whose every row is unattributable.
 
 Set these as project environment variables:
 
-| Variable                          | Notes                                                    |
-| --------------------------------- | -------------------------------------------------------- |
-| `DATABASE_URL`                    | Session pooler, port 6543                                |
-| `DATABASE_SSL`                    | `require`                                                |
-| `NEXT_PUBLIC_SUPABASE_URL`        | **Build time** — inlined into the bundle                 |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`   | **Build time** — inlined into the bundle                 |
-| `SUPABASE_URL`                    | Runtime                                                  |
-| `SUPABASE_ANON_KEY`               | Runtime                                                  |
-| `SUPABASE_SERVICE_ROLE_KEY`       | Runtime, never public                                    |
-| `BUILT_IN_FORGE_API_URL` / `_KEY` | Required in production; uploads fail loudly without them |
-| `NEXT_PUBLIC_APP_ID`              | Any string identifying the deployment                    |
+| Variable                          | Notes                                                     |
+| --------------------------------- | --------------------------------------------------------- |
+| `DATABASE_URL`                    | Session pooler, port 6543                                 |
+| `DATABASE_SSL`                    | `require`                                                 |
+| `NEXT_PUBLIC_SUPABASE_URL`        | **Build time** — inlined into the bundle                  |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`   | **Build time** — inlined into the bundle                  |
+| `SUPABASE_URL`                    | Runtime                                                   |
+| `SUPABASE_ANON_KEY`               | Runtime                                                   |
+| `SUPABASE_SERVICE_ROLE_KEY`       | Runtime, never public. **Required** — it creates accounts |
+| `BUILT_IN_FORGE_API_URL` / `_KEY` | Required in production; uploads fail loudly without them  |
+| `NEXT_PUBLIC_APP_ID`              | Any string identifying the deployment                     |
+
+Leave Supabase's own email signup **switched off** (Authentication → Sign In /
+Providers → Email). The platform has no public sign-up: a Supabase identity with
+no register row is refused, so an account exists only once an administrator
+creates it. That is what keeps the register's contents attributable — and it is
+why the service role is needed on the deployment, since every account is created
+through Supabase's admin API.
 
 The two `NEXT_PUBLIC_` pairs and their `SUPABASE_` counterparts must name the
 **same** Supabase project. If the browser was built for one project and the
