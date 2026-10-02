@@ -54,6 +54,7 @@ type Phase = "off" | "holding" | "fading";
 export function PostSignInGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("off");
   const [floorPassed, setFloorPassed] = useState(true);
+  const [painted, setPainted] = useState(true);
 
   // `useIsFetching` rather than the layout's own loading flag, because the
   // layout is not the only thing that fetches. The dashboard asks for the
@@ -65,30 +66,55 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
     refetchOnWindowFocus: false,
   });
 
-  // The note is only consumed here, once, by the last reader in the sequence.
-  // `app/loading.tsx` peeks at it and the layout used to; both need to see it
-  // and neither should take it from the other.
+  // The note is taken by whoever acts on it, and both paths below act.
+  //
+  // They have to. The gate is already mounted by the time a sign-in completes —
+  // it lives in the root layout, and the sign-in screen is inside it — so the
+  // mount pass below finds nothing and returns. The note is then written by the
+  // sign-in screen and arrives over the event. If the event path only *read* it,
+  // the note would survive the whole handover, still sitting in sessionStorage,
+  // and a refresh would find it there and put this screen up again — the exact
+  // thing it is not supposed to do.
+  //
+  // `app/loading.tsx` peeks rather than takes, and is right to: it may render
+  // before the gate has mounted at all, and a screen that took the note would
+  // leave the gate nothing to hand over from.
   useEffect(() => {
-    if (consumePostSignIn()) {
-      setPhase("holding");
-      // The floor starts now, not when the document was created: a slow server
-      // round trip must not be spent out of the time the mark is on screen.
-      setFloorPassed(false);
-    }
+    if (consumePostSignIn()) startHandover();
     return onPostSignIn(() => {
-      setPhase("holding");
-      setFloorPassed(false);
+      if (consumePostSignIn()) startHandover();
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function startHandover() {
+    setPhase("holding");
+    // The floor starts now, not when the document was created: a slow server
+    // round trip must not be spent out of the time the mark is on screen.
+    setFloorPassed(false);
+    // Re-armed for this handover, so the frame below is waited for again rather
+    // than being satisfied by the one that happened on the way in.
+    setPainted(false);
+  }
 
   // The platform's own readiness: a resolved session and nothing in flight.
   const ready = !sessionState.isLoading && inFlight === 0;
 
+  // ...and one painted frame, so "nothing in flight" cannot be read in the gap
+  // between the server-prefetched cache hydrating and the screen's first query
+  // registering. Handing over in that gap is what puts a skeleton on screen at
+  // the moment this screen leaves.
+  useEffect(() => {
+    if (!ready || painted) return;
+    const frame = requestAnimationFrame(() => setPainted(true));
+    return () => cancelAnimationFrame(frame);
+  }, [ready, painted]);
+
   useEffect(() => {
     if (phase !== "holding") return;
-    if (!floorPassed || !ready) return;
+    if (!floorPassed || !painted || !ready) return;
     setPhase("fading");
-  }, [phase, floorPassed, ready]);
+  }, [phase, floorPassed, painted, ready]);
 
   useEffect(() => {
     if (phase !== "fading") return;

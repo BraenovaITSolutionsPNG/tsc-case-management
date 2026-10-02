@@ -268,6 +268,36 @@ describe("the sign-in event", () => {
     expect(heard).toBe(1);
   });
 
+  it("leaves nothing behind for a refresh to find", () => {
+    // The bug this exists to prevent. The gate is already mounted when a sign-in
+    // completes - it lives in the root layout and the sign-in screen is inside
+    // it - so it is told over the event, not by a note at mount. If the event
+    // path only read the note, it would survive the whole handover and a refresh
+    // would find it and raise the screen again, which is precisely what must
+    // never happen after the sign-in it belongs to.
+    install(fakeStorage());
+
+    // 1. The gate mounts, on the sign-in screen, before anything is written.
+    expect(consumePostSignIn()).toBe(false);
+
+    // 2. The officer signs in: the note is written and the event fires. The gate
+    //    is already listening, and its handler takes the note - which is what
+    //    makes this work rather than the mount pass doing it.
+    let took = false;
+    const stop = onPostSignIn(() => {
+      if (consumePostSignIn()) took = true;
+    });
+
+    markPostSignIn();
+    stop();
+    expect(took).toBe(true);
+
+    // 3. The handover runs and finishes. Nothing was left in storage, so the
+    //    refresh below finds an empty tab.
+    expect(peekPostSignIn()).toBe(false);
+    expect(consumePostSignIn()).toBe(false);
+  });
+
   it("still leaves the note when there is no listener to hear it", () => {
     // The note is what covers entering the platform as a new document, so it is
     // written whether or not anything is listening.
