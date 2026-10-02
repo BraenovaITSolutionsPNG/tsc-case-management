@@ -15,6 +15,7 @@ import {
 } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
+import { LoadingState } from "@/components/States";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -352,11 +353,13 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
 
         <div>
           {users.isLoading ? (
-            <div className="space-y-2 py-2">
-              {[1, 2, 3].map(i => (
-                <Skeleton key={i} className="h-9 rounded" />
-              ))}
-            </div>
+            <LoadingState label="The account list">
+              <div className="space-y-2 py-2">
+                {[1, 2, 3].map(i => (
+                  <Skeleton key={i} className="h-9 rounded" />
+                ))}
+              </div>
+            </LoadingState>
           ) : (
             <>
               {/*
@@ -437,7 +440,9 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                                   id={`username-${user.id}`}
                                   name="username"
                                   value={usernameDraft}
-                                  onChange={e => setUsernameDraft(e.target.value)}
+                                  onChange={e =>
+                                    setUsernameDraft(e.target.value)
+                                  }
                                   className="h-8 font-mono text-[12px]"
                                   autoFocus
                                 />
@@ -827,11 +832,13 @@ function AuditTab() {
       }
     >
       {audit.isLoading ? (
-        <div className="space-y-2 py-2">
-          {[1, 2, 3, 4].map(i => (
-            <Skeleton key={i} className="h-9 rounded" />
-          ))}
-        </div>
+        <LoadingState label="The audit trail">
+          <div className="space-y-2 py-2">
+            {[1, 2, 3, 4].map(i => (
+              <Skeleton key={i} className="h-9 rounded" />
+            ))}
+          </div>
+        </LoadingState>
       ) : rows.length ? (
         <>
           {/* Fixed layout with stated widths, and a floor on the table. The
@@ -1026,11 +1033,13 @@ function OversightTab() {
       }
     >
       {cases.isLoading ? (
-        <div className="space-y-2 py-2">
-          {[1, 2, 3, 4].map(i => (
-            <Skeleton key={i} className="h-9 rounded" />
-          ))}
-        </div>
+        <LoadingState label="The oversight list">
+          <div className="space-y-2 py-2">
+            {[1, 2, 3, 4].map(i => (
+              <Skeleton key={i} className="h-9 rounded" />
+            ))}
+          </div>
+        </LoadingState>
       ) : (
         <>
           {/* Fixed layout: the Oversight column holds two selects, which
@@ -1174,11 +1183,15 @@ function OversightTab() {
                 href="#"
                 aria-disabled={currentPage <= 1}
                 className={
-                  currentPage <= 1 ? "pointer-events-none opacity-50" : undefined
+                  currentPage <= 1
+                    ? "pointer-events-none opacity-50"
+                    : undefined
                 }
                 onClick={event => {
                   event.preventDefault();
-                  setPage(clampPage(currentPage - 1, total, OVERSIGHT_PAGE_SIZE));
+                  setPage(
+                    clampPage(currentPage - 1, total, OVERSIGHT_PAGE_SIZE)
+                  );
                 }}
               />
             </PaginationItem>
@@ -1199,7 +1212,9 @@ function OversightTab() {
                 }
                 onClick={event => {
                   event.preventDefault();
-                  setPage(clampPage(currentPage + 1, total, OVERSIGHT_PAGE_SIZE));
+                  setPage(
+                    clampPage(currentPage + 1, total, OVERSIGHT_PAGE_SIZE)
+                  );
                 }}
               />
             </PaginationItem>
@@ -1258,7 +1273,11 @@ function StatsTab() {
   const stats = trpc.admin.stats.useQuery();
 
   if (stats.isLoading) {
-    return <Skeleton className="mx-auto h-64 max-w-[1400px] rounded-lg" />;
+    return (
+      <LoadingState label="The platform statistics">
+        <Skeleton className="mx-auto h-64 max-w-[1400px] rounded-lg" />
+      </LoadingState>
+    );
   }
   if (stats.isError) {
     return (
@@ -1391,7 +1410,9 @@ export default function Admin() {
   if (loading)
     return (
       <DashboardLayout>
-        <Skeleton className="mx-auto h-64 max-w-[1400px] rounded-xl" />
+        <LoadingState label="Your account">
+          <Skeleton className="mx-auto h-64 max-w-[1400px] rounded-xl" />
+        </LoadingState>
       </DashboardLayout>
     );
 

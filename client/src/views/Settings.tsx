@@ -4,22 +4,20 @@ import { CardPanel } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { PageHeader, PageShell } from "@/components/PageHeader";
+import { LoadingState } from "@/components/States";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import { can, capabilitiesFor, capabilityLabel } from "@shared/access";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS, ROLE_TITLES } from "@shared/roles";
-import { GOLDEN_RULE_PARTS, MATTER_CATEGORIES, NATIONAL_SECTIONS } from "@shared/delegation";
-import { STATUS_LABELS, STATUS_VALUES } from "@shared/statuses";
 import {
-  LogOut,
-  Monitor,
-  Moon,
-  ShieldCheck,
-  Sun,
-  UserCog,
-} from "lucide-react";
+  GOLDEN_RULE_PARTS,
+  MATTER_CATEGORIES,
+  NATIONAL_SECTIONS,
+} from "@shared/delegation";
+import { STATUS_LABELS, STATUS_VALUES } from "@shared/statuses";
+import { LogOut, Monitor, Moon, ShieldCheck, Sun, UserCog } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -58,7 +56,9 @@ export default function Settings() {
     return (
       <DashboardLayout>
         <PageShell>
-          <Skeleton className="h-64 rounded-lg" />
+          <LoadingState label="Your account">
+            <Skeleton className="h-64 rounded-lg" />
+          </LoadingState>
         </PageShell>
       </DashboardLayout>
     );
@@ -68,7 +68,13 @@ export default function Settings() {
     return (
       <DashboardLayout>
         <PageShell>
-          <div className="rounded-lg border border-slate-200 bg-white px-6 py-12 text-center">
+          {/* `role="alert"` for the same reason as the matter that could not be
+              opened: this is a state the officer has to notice, and a screen
+              reader was reading it as an ordinary heading. */}
+          <div
+            role="alert"
+            className="rounded-lg border border-slate-200 bg-white px-6 py-12 text-center"
+          >
             <UserCog className="mx-auto h-9 w-9 text-slate-300" aria-hidden />
             <h1 className="mt-3 text-lg font-semibold text-slate-900">
               You are not signed in
@@ -305,10 +311,7 @@ function ReferenceList() {
         </h3>
         <ul className="mt-2 space-y-1">
           {STATUS_VALUES.map(status => (
-            <li
-              key={status}
-              className="flex gap-2 text-xs text-slate-700"
-            >
+            <li key={status} className="flex gap-2 text-xs text-slate-700">
               <span className="w-8 shrink-0 font-mono font-medium text-slate-500">
                 {status}
               </span>
@@ -352,7 +355,9 @@ function ReferenceList() {
         <ul className="mt-2 grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
           {NATIONAL_SECTIONS.map(section => (
             <li key={section.key} className="text-xs text-slate-700">
-              <span className="font-medium text-slate-800">{section.label}</span>{" "}
+              <span className="font-medium text-slate-800">
+                {section.label}
+              </span>{" "}
               — {section.authority}
             </li>
           ))}

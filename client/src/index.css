@@ -3,6 +3,49 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ---------------------------------------------------------------------------
+   Motion.
+
+   The scale the whole application moves on. It exists because the motion was
+   otherwise chosen per component - 200ms here, 300ms there, 500ms for a sheet,
+   2600ms for the sign-in screen - and an interface assembled from unrelated
+   timings does not feel like one product. Three steps and one curve is enough to
+   be recognisably the same hand.
+
+   -fast  120ms  hover and press feedback, anything that answers the finger
+   -base  200ms  the default: menus, tabs, disclosure, the sidebar
+   -slow  320ms  anything that covers or uncovers content
+
+   The curve is decelerating: fast out of the gate, slow into place. That is the
+   shape of something being put down rather than dragged, and it is why the
+   sidebar and the dialogs feel like they settle instead of snapping.
+
+   `data-motion="off"` is honoured globally further down, alongside the media
+   query, so a deployment can still it for everyone and an individual who has
+   asked their operating system gets it without touching the app.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Declared as utilities rather than theme entries because `duration-*` in
+   Tailwind v4 resolves against its own static list rather than reading
+   `--duration-*`, so `duration-base` generated nothing at all and every component
+   using it fell back to having no transition. An `@utility` block is
+   unconditional, which is what a scale the application depends on has to be. */
+@utility duration-fast {
+  transition-duration: 120ms;
+}
+
+@utility duration-base {
+  transition-duration: 200ms;
+}
+
+@utility duration-slow {
+  transition-duration: 320ms;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -266,6 +309,31 @@
   .animate-loader-cascade,
   .animate-loader-bar {
     animation: none;
+  }
+
+  /* The skeleton placeholder, which was the one thing in the application still
+     moving for someone who had asked their operating system to stop it. Every
+     page in this platform draws one while its data arrives, so this was the most
+     persistent piece of unwanted motion in the product and it sat outside the
+     loader's reduced-motion rule entirely — not because it was exempt, but
+     because it is a Tailwind utility rather than one of the hand-written
+     keyframes above, so it was never in the list.
+
+     It stops, it does not disappear: a skeleton with no animation is still a
+     skeleton, which is the honest "this is where the data will be" the pulsing
+     was only ever emphasising. */
+  .animate-pulse {
+    animation: none !important;
+  }
+
+  /* Everything the interface animates on entry. Tailwind's `animate-in` and
+     `animate-out` are used by fifteen components — dialogs, sheets, tooltips,
+     menus — and each one is a short fade or slide that a reduced-motion setting
+     is asking not to see. */
+  .animate-in,
+  .animate-out {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
   }
 
   /* Frozen, the spinner would read as a stopped loading state — which is the

@@ -14,10 +14,15 @@ import {
   StatTable,
 } from "@/components/DataTable";
 import { PageHeader, PageShell } from "@/components/PageHeader";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  SkeletonRows,
+} from "@/components/States";
 import { StatusTag } from "@/components/StatusIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Pagination,
   PaginationContent,
@@ -29,7 +34,11 @@ import {
 import { keepPreviousData } from "@tanstack/react-query";
 import { trpc } from "@/lib/trpc";
 import { can } from "@shared/access";
-import { matterTypeValues, provinceValues, type MatterType } from "@shared/matters";
+import {
+  matterTypeValues,
+  provinceValues,
+  type MatterType,
+} from "@shared/matters";
 import {
   REGISTER_PAGE_SIZE,
   clampPage,
@@ -47,7 +56,6 @@ import {
   AlertTriangle,
   FilePlus2,
   Filter,
-  Inbox,
   ListFilter,
   Search,
   Stamp,
@@ -250,7 +258,9 @@ export default function CaseRegister() {
               />
             </div>
             <Button
-              variant={showFilters || activeFilterCount ? "secondary" : "outline"}
+              variant={
+                showFilters || activeFilterCount ? "secondary" : "outline"
+              }
               onClick={() => setShowFilters(value => !value)}
               aria-expanded={showFilters}
             >
@@ -314,7 +324,9 @@ export default function CaseRegister() {
                   onChange={event => setOverdueOnly(event.target.checked)}
                   className="h-4 w-4 rounded border-input"
                 />
-                <span className="text-sm text-slate-700">Past due date only</span>
+                <span className="text-sm text-slate-700">
+                  Past due date only
+                </span>
               </label>
             </div>
           ) : null}
@@ -326,46 +338,39 @@ export default function CaseRegister() {
             query.isLoading
               ? "Loading…"
               : `${rows.length} matter${rows.length === 1 ? "" : "s"}${
-                  activeFilterCount || debounced ? " matching" : " on the register"
+                  activeFilterCount || debounced
+                    ? " matching"
+                    : " on the register"
                 }.`
           }
         >
           {query.isLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <Skeleton key={index} className="h-10 rounded" />
-              ))}
-            </div>
+            <LoadingState label="The register">
+              <SkeletonRows rows={6} />
+            </LoadingState>
           ) : query.error ? (
-            <div className="py-8 text-center">
-              <p className="text-sm text-slate-600">
-                The register could not be loaded. {query.error.message}
-              </p>
-              <Button
-                variant="secondary"
-                className="mt-3"
-                onClick={() => utils.caseManagement.list.invalidate()}
-              >
-                Try again
-              </Button>
-            </div>
+            <ErrorState
+              title="The register could not be loaded"
+              message={query.error.message}
+              onRetry={() => void utils.caseManagement.list.invalidate()}
+            />
           ) : rows.length === 0 ? (
-            <div className="py-12 text-center">
-              <Inbox className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
-              <p className="mt-3 text-sm text-slate-500">
-                {activeFilterCount || debounced
+            <EmptyState
+              text={
+                activeFilterCount || debounced
                   ? "No matter matches these filters."
-                  : "No matters have been registered yet."}
-              </p>
+                  : "No matters have been registered yet."
+              }
+            >
               {canRegister && !activeFilterCount && !debounced ? (
-                <Button asChild variant="secondary" className="mt-4">
+                <Button asChild variant="secondary">
                   <Link href="/cases/new">
                     <Stamp className="mr-2 h-4 w-4" />
                     Register the first matter
                   </Link>
                 </Button>
               ) : null}
-            </div>
+            </EmptyState>
           ) : (
             <DenseTable fixed className="min-w-[1080px]">
               <DenseHeader>
@@ -402,7 +407,10 @@ export default function CaseRegister() {
                         ) : null}
                       </DenseCell>
                       <DenseCell>
-                        <Link href={`/cases/${item.id}`} className="hover:underline">
+                        <Link
+                          href={`/cases/${item.id}`}
+                          className="hover:underline"
+                        >
                           {item.teacherName}
                         </Link>
                         {item.employeeReference ? (
@@ -411,8 +419,12 @@ export default function CaseRegister() {
                           </span>
                         ) : null}
                       </DenseCell>
-                      <DenseCell className="text-slate-600">{item.province}</DenseCell>
-                      <DenseCell className="text-slate-600">{item.matterType}</DenseCell>
+                      <DenseCell className="text-slate-600">
+                        {item.province}
+                      </DenseCell>
+                      <DenseCell className="text-slate-600">
+                        {item.matterType}
+                      </DenseCell>
                       <DenseCell>
                         <StatusTag status={item.status} />
                         {item.decisionRequired ? (
@@ -481,10 +493,16 @@ export default function CaseRegister() {
                   <PaginationPrevious
                     href="#"
                     aria-disabled={currentPage <= 1}
-                    className={currentPage <= 1 ? "pointer-events-none opacity-50" : undefined}
+                    className={
+                      currentPage <= 1
+                        ? "pointer-events-none opacity-50"
+                        : undefined
+                    }
                     onClick={event => {
                       event.preventDefault();
-                      setPage(current => clampPage(current - 1, total, REGISTER_PAGE_SIZE));
+                      setPage(current =>
+                        clampPage(current - 1, total, REGISTER_PAGE_SIZE)
+                      );
                     }}
                   />
                 </PaginationItem>
@@ -500,10 +518,16 @@ export default function CaseRegister() {
                   <PaginationNext
                     href="#"
                     aria-disabled={currentPage >= pages}
-                    className={currentPage >= pages ? "pointer-events-none opacity-50" : undefined}
+                    className={
+                      currentPage >= pages
+                        ? "pointer-events-none opacity-50"
+                        : undefined
+                    }
                     onClick={event => {
                       event.preventDefault();
-                      setPage(current => clampPage(current + 1, total, REGISTER_PAGE_SIZE));
+                      setPage(current =>
+                        clampPage(current + 1, total, REGISTER_PAGE_SIZE)
+                      );
                     }}
                   />
                 </PaginationItem>

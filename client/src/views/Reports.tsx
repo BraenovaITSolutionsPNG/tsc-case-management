@@ -16,6 +16,12 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { StatusTag } from "@/components/StatusIcon";
 import { TabStrip, TabStripItem } from "@/components/TabStrip";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  SkeletonRows,
+} from "@/components/States";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -136,16 +142,6 @@ function PrintButton() {
   );
 }
 
-function Loading({ rows = 5 }: { rows?: number }) {
-  return (
-    <div className="space-y-2">
-      {Array.from({ length: rows }).map((_, index) => (
-        <Skeleton key={index} className="h-10 rounded" />
-      ))}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------- Weekly
 
 /**
@@ -168,10 +164,16 @@ function WeeklyBriefTab() {
   const query = trpc.reports.weeklyBrief.useQuery();
   const utils = trpc.useUtils();
 
-  if (query.isLoading) return <Loading />;
+  if (query.isLoading)
+    return (
+      <LoadingState label="The report">
+        <SkeletonRows />
+      </LoadingState>
+    );
   if (query.error || !query.data) {
     return (
-      <ErrorPanel
+      <ErrorState
+        title="This report could not be loaded"
         message={query.error?.message}
         onRetry={() => void utils.reports.weeklyBrief.invalidate()}
       />
@@ -224,7 +226,7 @@ function WeeklyBriefTab() {
         description="Matters marked urgent, and matters escalated for delay."
       >
         {brief.urgent.length === 0 ? (
-          <Empty text="No urgent or escalated matters." />
+          <EmptyState text="No urgent or escalated matters." />
         ) : (
           <DenseTable className="min-w-[860px]">
             <DenseHeader>
@@ -265,7 +267,7 @@ function WeeklyBriefTab() {
         description="What the Legal Section is being asked to do, and how long it has been outstanding."
       >
         {brief.legal.length === 0 ? (
-          <Empty text="No legal matters are outstanding." />
+          <EmptyState text="No legal matters are outstanding." />
         ) : (
           <DenseTable className="min-w-[620px]">
             <DenseHeader>
@@ -331,7 +333,7 @@ function WeeklyBriefTab() {
         description="Matters past their due date, longest outstanding first."
       >
         {brief.overdue.length === 0 ? (
-          <Empty text="Nothing is past its due date." />
+          <EmptyState text="Nothing is past its due date." />
         ) : (
           <DenseTable className="min-w-[620px]">
             <DenseHeader>
@@ -368,7 +370,7 @@ function WeeklyBriefTab() {
         description="What the Director is being asked to decide on."
       >
         {brief.decisionsRequired.length === 0 ? (
-          <Empty text="Nothing is waiting on a decision." />
+          <EmptyState text="Nothing is waiting on a decision." />
         ) : (
           <DenseTable className="min-w-[860px]">
             <DenseHeader>
@@ -484,9 +486,12 @@ function MonthlyTab() {
       </div>
 
       {query.isLoading ? (
-        <Loading />
+        <LoadingState label="The report">
+          <SkeletonRows />
+        </LoadingState>
       ) : query.error || !query.data ? (
-        <ErrorPanel
+        <ErrorState
+          title="This report could not be loaded"
           message={query.error?.message}
           onRetry={() => void utils.reports.monthly.invalidate()}
         />
@@ -563,7 +568,7 @@ function MonthlyTab() {
             description="Matters that have moved up the ladder."
           >
             {query.data.escalated.length === 0 ? (
-              <Empty text="No matter has been escalated." />
+              <EmptyState text="No matter has been escalated." />
             ) : (
               <DenseTable className="min-w-[420px]">
                 <DenseHeader>
@@ -632,9 +637,12 @@ function QuarterlyTab() {
       </div>
 
       {query.isLoading ? (
-        <Loading />
+        <LoadingState label="The report">
+          <SkeletonRows />
+        </LoadingState>
       ) : query.error || !query.data ? (
-        <ErrorPanel
+        <ErrorState
+          title="This report could not be loaded"
           message={query.error?.message}
           onRetry={() => void utils.reports.quarterly.invalidate()}
         />
@@ -745,7 +753,7 @@ function QuarterlyTab() {
             description="Scoped to work done inside the period: a matter received in the quarter counts for whoever received it."
           >
             {query.data.officers.length === 0 ? (
-              <Empty text="No officer activity was recorded in this quarter." />
+              <EmptyState text="No officer activity was recorded in this quarter." />
             ) : (
               <DenseTable fixed className="min-w-[860px]">
                 <DenseHeader>
@@ -834,10 +842,16 @@ function OfficersTab() {
   const query = trpc.reports.officerPerformance.useQuery();
   const utils = trpc.useUtils();
 
-  if (query.isLoading) return <Loading />;
+  if (query.isLoading)
+    return (
+      <LoadingState label="The report">
+        <SkeletonRows />
+      </LoadingState>
+    );
   if (query.error || !query.data) {
     return (
-      <ErrorPanel
+      <ErrorState
+        title="This report could not be loaded"
         message={query.error?.message}
         onRetry={() => void utils.reports.officerPerformance.invalidate()}
       />
@@ -856,7 +870,7 @@ function OfficersTab() {
         <PrintButton />
       </div>
       {rows.length === 0 ? (
-        <Empty text="No officer has handled a matter yet." />
+        <EmptyState text="No officer has handled a matter yet." />
       ) : (
         <DenseTable fixed className="min-w-[1000px]">
           <DenseHeader>
@@ -928,10 +942,16 @@ function ComplianceTab() {
   const query = trpc.reports.goldenRule.useQuery();
   const utils = trpc.useUtils();
 
-  if (query.isLoading) return <Loading />;
+  if (query.isLoading)
+    return (
+      <LoadingState label="The report">
+        <SkeletonRows />
+      </LoadingState>
+    );
   if (query.error || !query.data) {
     return (
-      <ErrorPanel
+      <ErrorState
+        title="This report could not be loaded"
         message={query.error?.message}
         onRetry={() => void utils.reports.goldenRule.invalidate()}
       />
@@ -1066,31 +1086,6 @@ function Breakdown({
           ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-function Empty({ text }: { text: string }) {
-  return <p className="py-8 text-center text-sm text-slate-500">{text}</p>;
-}
-
-function ErrorPanel({
-  message,
-  onRetry,
-}: {
-  message?: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="py-8 text-center">
-      <BarChart3 className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
-      <p className="mt-2 text-sm text-slate-600">
-        The report could not be loaded. {message}
-      </p>
-      <Button variant="secondary" className="mt-3" onClick={onRetry}>
-        <TrendingUp className="mr-2 h-4 w-4" />
-        Try again
-      </Button>
     </div>
   );
 }

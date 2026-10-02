@@ -4,6 +4,7 @@ import { CardPanel } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { ReferMatterDialog } from "@/components/ReferMatterDialog";
+import { LoadingState } from "@/components/States";
 import { StatusTag } from "@/components/StatusIcon";
 import { TabPanel, TabStrip, TabStripItem } from "@/components/TabStrip";
 import { Button } from "@/components/ui/button";
@@ -117,10 +118,14 @@ export default function CaseDetail() {
     return (
       <DashboardLayout>
         <PageShell>
-          <div className="space-y-4">
-            <Skeleton className="h-24 rounded-lg" />
-            <Skeleton className="h-64 rounded-lg" />
-          </div>
+          {/* Announced rather than bare, so a screen reader is told a matter is
+              being opened instead of reporting an empty page. */}
+          <LoadingState label="This matter">
+            <div className="space-y-4">
+              <Skeleton className="h-24 rounded-lg" />
+              <Skeleton className="h-64 rounded-lg" />
+            </div>
+          </LoadingState>
         </PageShell>
       </DashboardLayout>
     );
@@ -430,9 +435,11 @@ function MatterTab({
 
   if (!matter) {
     return (
-      <div className="space-y-2">
-        <Skeleton className="h-64 rounded-lg" />
-      </div>
+      <LoadingState label="The matter">
+        <div className="space-y-2">
+          <Skeleton className="h-64 rounded-lg" />
+        </div>
+      </LoadingState>
     );
   }
 
@@ -1686,7 +1693,11 @@ function BriefTab({
   }
 
   if (!matter || !values) {
-    return <Skeleton className="h-72 rounded-lg" />;
+    return (
+      <LoadingState label="The case brief">
+        <Skeleton className="h-72 rounded-lg" />
+      </LoadingState>
+    );
   }
 
   return (
@@ -1903,7 +1914,15 @@ function NotAMatter({
   onRetry?: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-6 py-12 text-center">
+    // `role="alert"` because this stands for both a matter that could not be
+    // opened and one that is not there at all, and a screen reader was reading
+    // it as a heading like any other — which is the one moment on the platform
+    // where being missed is worst. It interrupts rather than announces politely,
+    // which is right for a failure and generous for a dead end.
+    <div
+      role="alert"
+      className="rounded-lg border border-slate-200 bg-white px-6 py-12 text-center"
+    >
       <FileText className="mx-auto h-9 w-9 text-slate-300" aria-hidden />
       <h1 className="mt-3 text-lg font-semibold text-slate-900">{heading}</h1>
       {detail ? (

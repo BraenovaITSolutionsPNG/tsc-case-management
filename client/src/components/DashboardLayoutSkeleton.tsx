@@ -1,8 +1,23 @@
-import { Skeleton } from './ui/skeleton';
+import { Skeleton } from "./ui/skeleton";
 
+/**
+ * The shell shown while the session is being resolved.
+ *
+ * Marked as a status region with `aria-busy`, because a full page of grey boxes
+ * is otherwise indistinguishable from a page that rendered nothing at all - the
+ * shell has no text in it to be read, so a screen reader reported the platform as
+ * empty on every load. The skeleton is doing its job visually; it just was not
+ * saying anything.
+ */
 export function DashboardLayoutSkeleton() {
   return (
-    <div className="flex min-h-screen bg-background">
+    <div
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+      className="flex min-h-screen bg-background"
+    >
+      <span className="sr-only">Loading the platform.</span>
       {/* Sidebar skeleton */}
       <div className="w-[280px] border-r border-border bg-background p-4 space-y-6">
         {/* Logo area */}

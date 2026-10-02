@@ -7,6 +7,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { StatCards } from "@/components/StatCards";
 import { StatusTag } from "@/components/StatusIcon";
+import { ErrorState, LoadingState } from "@/components/States";
 import { CardPanel } from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -95,17 +96,11 @@ export default function Home() {
       <DashboardLayout>
         <PageShell>
           <CardPanel>
-            <p className="py-8 text-center text-sm text-slate-600">
-              The dashboard could not be loaded. {query.error.message}
-            </p>
-            <div className="mt-2 flex justify-center">
-              <Button
-                variant="secondary"
-                onClick={() => utils.caseManagement.dashboard.invalidate()}
-              >
-                Try again
-              </Button>
-            </div>
+            <ErrorState
+              title="The dashboard could not be loaded"
+              message={query.error.message}
+              onRetry={() => void utils.caseManagement.dashboard.invalidate()}
+            />
           </CardPanel>
         </PageShell>
       </DashboardLayout>
@@ -116,13 +111,18 @@ export default function Home() {
     return (
       <DashboardLayout>
         <PageShell className="space-y-5">
-          <Skeleton className="h-8 w-64" />
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <Skeleton key={index} className="h-24 rounded-lg" />
-            ))}
-          </div>
-          <Skeleton className="h-72 rounded-lg" />
+          {/* The shape of the overview, so the page does not resize when it
+              arrives. Wrapped rather than bare so the wait is announced - see
+              `LoadingState`. */}
+          <LoadingState label="The dashboard">
+            <Skeleton className="h-8 w-64" />
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="h-24 rounded-lg" />
+              ))}
+            </div>
+            <Skeleton className="h-72 rounded-lg" />
+          </LoadingState>
         </PageShell>
       </DashboardLayout>
     );

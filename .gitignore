@@ -144,6 +144,14 @@ database/schema-apply.sql
 .project-config.json
 .vercel
 
+# Editor/agent worktrees. Untracked, but Tailwind reads .gitignore to decide what
+# to scan - so an ignored-in-spirit directory that is not listed here still gets
+# scanned, and a stale copy of the whole project ends up contributing class names
+# to the shipped stylesheet. This one held 5 MB of an older checkout, including
+# the login screen's previous colour scheme and components that no longer exist,
+# and every class in it was being compiled into the CSS the officers load.
+.kilo/
+
 # The Figma Make scaffold the post-sign-in screen was designed in. Kept on disk
 # as the design of record, and deliberately not committed: it is a complete
 # second Vite + React + Tailwind project, with its own package.json and
