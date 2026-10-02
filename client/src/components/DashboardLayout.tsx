@@ -24,6 +24,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { BootLoader } from "./BootLoader";
 import {
   BOOT_CEILING_MS,
+  BOOT_FADE_MS,
   BOOT_MINIMUM_MS,
   consumePostSignIn,
 } from "@/lib/postSignIn";
@@ -110,6 +111,26 @@ const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
 
+/**
+ * Where the post-sign-in hand-off has got to.
+ *
+ * Three states rather than a boolean, because the handover is three moments and
+ * one flag cannot tell them apart:
+ *
+ *   off      - nothing to show; the layout behaves exactly as it always has.
+ *   holding  - the loader is the whole screen. There is no platform under it yet
+ *              because the session has not resolved, so there is nothing to
+ *              dissolve from.
+ *   fading   - the platform is rendered and the loader is dissolving off it.
+ *
+ * `off` is the only resting state and every path returns to it, the ceiling
+ * included. That is what keeps this from being a screen an officer can get stuck
+ * behind, and it is also why arriving on any other page in the platform cannot
+ * raise it: nothing but the sign-in note sets `holding`, and that note is
+ * consumed on the way in.
+ */
+type BootPhase = "off" | "holding" | "fading";
+
 export default function DashboardLayout({
   children,
 }: {
@@ -159,20 +180,26 @@ export default function DashboardLayout({
   //   - the note the sign-in screen left, consumed on the way in, so this is a
   //     sign-in and not merely a page load;
   //   - the session resolved, so there is an identity to draw the platform for;
-  //   - the screen has been up long enough to read as a moment rather than a
-  //     flicker, because a mark that flashes past in 200ms looks like a bug.
+  //   - the screen has been up for BOOT_MINIMUM_MS, long enough to read as a
+  //     moment rather than a flicker, because a mark that flashes past in 200ms
+  //     looks like a bug.
   //
-  // And a fourth that overrides all of them: BOOT_CEILING_MS. This covers the
+  // Those two then hand over through `fading`, during which the platform is
+  // already rendered and rising underneath while the loader dissolves off it. The
+  // alternative — swapping one for the other — is a cut, and a cut from a
+  // full-screen logo to the platform reads as a jump rather than as arriving.
+  //
+  // And a condition that overrides all of them: BOOT_CEILING_MS. This covers the
   // viewport, so a session request that never settles, a query stuck retrying, a
   // network that went away mid-boot — every one of those would otherwise leave
   // an officer staring at a logo. A skeleton or a half-drawn screen is a lesser
   // problem than a permanent one, and they can always reload.
-  const [afterSignIn, setAfterSignIn] = useState(false);
+  const [bootPhase, setBootPhase] = useState<BootPhase>("off");
   const [bootElapsed, setBootElapsed] = useState(true);
 
   useEffect(() => {
     if (consumePostSignIn()) {
-      setAfterSignIn(true);
+      setBootPhase("holding");
       // Not yet elapsed: the floor starts when the screen appears, not when the
       // layout happened to mount.
       setBootElapsed(false);
@@ -180,18 +207,30 @@ export default function DashboardLayout({
   }, []);
 
   useEffect(() => {
-    if (!afterSignIn) return;
-    const ceiling = setTimeout(() => setAfterSignIn(false), BOOT_CEILING_MS);
+    if (bootPhase === "off") return;
+    const ceiling = setTimeout(() => setBootPhase("off"), BOOT_CEILING_MS);
     return () => clearTimeout(ceiling);
-  }, [afterSignIn]);
+  }, [bootPhase]);
 
   useEffect(() => {
-    if (!afterSignIn) return;
+    if (bootPhase !== "holding") return;
     if (loading || !bootElapsed) return;
-    setAfterSignIn(false);
-  }, [afterSignIn, loading, bootElapsed]);
+    setBootPhase("fading");
+  }, [bootPhase, loading, bootElapsed]);
 
-  if (afterSignIn) {
+  useEffect(() => {
+    if (bootPhase !== "fading") return;
+    // Unmounts the overlay once it has finished dissolving. BOOT_FADE_MS is the
+    // same number the CSS transition runs for, so the screen is taken away at the
+    // moment it has become invisible rather than while it is still on its way out.
+    const done = setTimeout(() => setBootPhase("off"), BOOT_FADE_MS);
+    return () => clearTimeout(done);
+  }, [bootPhase]);
+
+  // While the platform is still resolving there is nothing to dissolve *from*,
+  // so the loader is the whole screen. Once there is, the platform renders and
+  // the loader sits over it going out.
+  if (bootPhase === "holding") {
     return (
       <BootLoader
         minimumVisibleMs={BOOT_MINIMUM_MS}
@@ -218,17 +257,30 @@ export default function DashboardLayout({
   }
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": `${sidebarWidth}px`,
-        } as CSSProperties
-      }
-    >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
-    </SidebarProvider>
+    <div className={bootPhase === "fading" ? "boot-handover-in" : undefined}>
+      <SidebarProvider
+        style={
+          {
+            "--sidebar-width": `${sidebarWidth}px`,
+          } as CSSProperties
+        }
+      >
+        <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
+          {children}
+        </DashboardLayoutContent>
+      </SidebarProvider>
+
+      {/*
+       * The second half of the handover, and the only place the platform and the
+       * loader exist at the same time. Conditional on `fading` rather than on
+       * `bootPhase !== "off"` so the loader cannot outlive its own transition by
+       * one render: once the phase is "off" the element is gone, and a leftover
+       * full-screen overlay would be a platform nobody can click.
+       */}
+      {bootPhase === "fading" ? (
+        <BootLoader fading onMinimumElapsed={() => setBootElapsed(true)} />
+      ) : null}
+    </div>
   );
 }
 

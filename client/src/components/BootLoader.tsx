@@ -33,11 +33,23 @@ import { useEffect } from "react";
  * served by an animation, however well made it is.
  */
 export function BootLoader({
-  minimumVisibleMs = 1400,
+  minimumVisibleMs = 2000,
   onMinimumElapsed,
+  fading = false,
 }: {
   minimumVisibleMs?: number;
   onMinimumElapsed?: () => void;
+  /**
+   * Fade the screen out rather than holding it opaque.
+   *
+   * Set once the platform is ready and rendered underneath, so the two overlap
+   * for the length of the fade and neither arrives as a cut. The element stays
+   * mounted throughout — the caller unmounts it on a timer matching
+   * `BOOT_FADE_MS` — and stops taking pointer events while it is on its way out,
+   * so a click landing in those last few hundred milliseconds reaches the
+   * platform instead of being swallowed by a screen that is leaving.
+   */
+  fading?: boolean;
 }) {
   useEffect(() => {
     if (!onMinimumElapsed) return;
@@ -49,10 +61,14 @@ export function BootLoader({
 
   return (
     <div
-      className="boot-shell"
+      className={fading ? "boot-shell boot-shell-fading" : "boot-shell"}
       role="status"
       aria-live="polite"
       aria-label="Signing you in"
+      // The screen is on its way out; the platform beneath it is the thing being
+      // read now, and a status region mid-fade would keep announcing itself over
+      // the officer's first screen of the platform.
+      aria-hidden={fading || undefined}
     >
       <div className="boot-ambient boot-ambient-one" />
       <div className="boot-ambient boot-ambient-two" />

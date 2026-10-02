@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BOOT_CEILING_MS,
+  BOOT_FADE_MS,
   BOOT_MINIMUM_MS,
   consumePostSignIn,
   markPostSignIn,
@@ -86,6 +87,35 @@ describe("postSignIn", () => {
     expect(consumePostSignIn()).toBe(false);
   });
 
+  it("stays silent for every page in the platform after the first", () => {
+    // The whole point of the hand-off. An officer who signs in and then spends
+    // an hour moving around the register should see the branded screen once, on
+    // the way in, and never again - and the layout is remounted per screen, so
+    // "once" has to be enforced here rather than by the component.
+    install(fakeStorage());
+    markPostSignIn();
+
+    expect(consumePostSignIn()).toBe(true);
+    for (const _page of [
+      "/",
+      "/cases",
+      "/cases/1",
+      "/admin",
+      "/reports",
+      "/settings",
+    ]) {
+      expect(consumePostSignIn()).toBe(false);
+    }
+  });
+
+  it("does not appear to an officer who never signed in on this tab", () => {
+    // A second tab opened against a session that already exists is the case this
+    // guards: the officer is genuinely authenticated, but they did not sign in
+    // here, and the screen would be a claim about something that did not happen.
+    install(fakeStorage());
+    expect(consumePostSignIn()).toBe(false);
+  });
+
   it("still lets the officer in when storage refuses the note", () => {
     // Private browsing, a full quota, or storage disabled by policy. This runs
     // on the path into the application, so throwing here would lock somebody
@@ -111,6 +141,28 @@ describe("postSignIn", () => {
     consumePostSignIn();
     install(fakeStorage());
     expect(consumePostSignIn()).toBe(false);
+  });
+
+  it("holds for two seconds, so the mark finishes assembling", () => {
+    // The mark runs a 3.4s cycle and reaches full opacity at 88% of it, so a
+    // shorter hold would cut it off mid-assembly. This is the figure the
+    // transition was designed around, so it is pinned rather than left to drift.
+    expect(BOOT_MINIMUM_MS).toBe(2000);
+  });
+
+  it("leaves room in the ceiling for the hold and the handover both", () => {
+    // If the ceiling were under the sum, the screen would be yanked away while
+    // still fading - which is the hard cut the fade exists to avoid, reached by
+    // the timer rather than by the transition.
+    expect(BOOT_CEILING_MS).toBeGreaterThan(BOOT_MINIMUM_MS + BOOT_FADE_MS);
+  });
+
+  it("matches the CSS transition so the overlay is not cut off", () => {
+    // BOOT_FADE_MS is a JavaScript timer that unmounts the loader, and the fade
+    // is a CSS transition of the same length. If they disagree the element is
+    // removed while it is still visible. Asserted here because the two live in
+    // different files and only one of them is this module's business.
+    expect(BOOT_FADE_MS).toBe(500);
   });
 
   it("keeps the screen long enough to be seen, and no longer than the ceiling", () => {

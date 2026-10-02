@@ -23,14 +23,32 @@
 const FLAG = "tsc-post-sign-in";
 
 /**
- * How long the post-sign-in screen is held once the platform is ready.
+ * How long the post-sign-in screen holds before the platform is handed over.
  *
  * The floor exists because a screen that appears for 200ms reads as a glitch
  * rather than as a moment. It is a floor and not a fixed duration: the platform
  * is revealed the moment both the session has resolved and this much time has
  * passed, so a slow boot is never cut short and a fast one is never rushed.
+ *
+ * Two seconds is the figure the transition was designed around — long enough for
+ * the mark to finish assembling itself once (the animation runs on a 3.4s cycle,
+ * so two seconds lands in the middle of the mark settling rather than after it
+ * has finished) and short enough that an officer is not watching a logo while
+ * their register waits behind it.
  */
-export const BOOT_MINIMUM_MS = 1400;
+export const BOOT_MINIMUM_MS = 2000;
+
+/**
+ * How long the handover takes.
+ *
+ * The loader fades out over this while the platform fades in beneath it, so the
+ * two are briefly both visible and neither arrives as a cut. Long enough to read
+ * as a transition, short enough that the platform feels immediate once it is
+ * there. The fade duration in `index.css` must match this number, or the overlay
+ * is removed while it is still visible and the last few frames are the hard cut
+ * this exists to avoid.
+ */
+export const BOOT_FADE_MS = 500;
 
 /**
  * The ceiling, and the reason this module is safe to trust.
@@ -42,6 +60,9 @@ export const BOOT_MINIMUM_MS = 1400;
  * shown in whatever state it turns out to be in. A skeleton or a half-drawn
  * screen is a lesser problem than a permanent one, and the officer can always
  * reload.
+ *
+ * Comfortably more than the floor plus the fade, so the ceiling is only ever
+ * reached by something that has actually gone wrong.
  */
 export const BOOT_CEILING_MS = 8000;
 

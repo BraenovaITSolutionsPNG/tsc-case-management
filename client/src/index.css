@@ -689,3 +689,52 @@
     transform: scaleX(0.78);
   }
 }
+
+/* The handover. The loader dissolves while the platform is already rendered
+   underneath it, so for half a second both are visible and neither arrives as a
+   cut.
+
+   500ms, which must match BOOT_FADE_MS in client/src/lib/postSignIn.ts: the
+   caller unmounts the overlay on a timer of exactly that length, and if the two
+   disagreed the overlay would be removed while still opaque — a hard cut wearing
+   the costume of a transition.
+
+   `ease` rather than `ease-in-out` so it starts moving immediately. A slow-out
+   fade spends its first frames nearly stationary, which reads as the loader
+   hesitating on the way out. */
+.boot-shell-fading {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 500ms ease;
+}
+
+/* The platform rising underneath. Kept in step with the same 500ms for the same
+   reason: two halves of one transition, and the second one should not outlive
+   the first. Applied to the layout's own root rather than to a wrapper, so it
+   fades whatever the screen under it happens to be instead of assuming a shape. */
+.boot-handover-in {
+  animation: boot-handover-in 500ms ease both;
+}
+
+@keyframes boot-handover-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The cross-fade is the transition, so under reduced motion it is shortened
+     rather than removed: cutting straight to the platform is disorienting in a
+     different way, and 500ms of opacity is not the movement being asked to be
+     spared. What is stopped is everything that moves on its own. */
+  .boot-shell-fading {
+    transition-duration: 120ms;
+  }
+
+  .boot-handover-in {
+    animation-duration: 120ms;
+  }
+}
