@@ -26,15 +26,21 @@ import { GOLDEN_RULE_PARTS } from "@shared/delegation";
 import { STATUS_LABELS, type CaseStatus } from "@shared/statuses";
 import {
   BarChart3,
+  Briefcase,
+  CalendarCheck,
   CalendarRange,
+  Clock,
   FileBarChart,
   Printer,
+  Scale,
   ShieldAlert,
   ShieldCheck,
+  Siren,
   TrendingUp,
+  Vote,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 /**
  * The Director's reporting set.
@@ -143,10 +149,20 @@ function Loading({ rows = 5 }: { rows?: number }) {
 // ---------------------------------------------------------------- Weekly
 
 /**
- * The one-page Director's weekly brief, sections A to F. The section
- * letters are the manual's, kept in order, because the Director reads against
- * the manual and a differently-ordered brief would be harder to use, not
- * easier.
+ * The one-page Director's weekly brief: six panels, urgent through decisions.
+ *
+ * The order is unchanged from when these were lettered A to F, and it is still
+ * the manual's order, because the Director reads against the manual and a
+ * differently-ordered brief would be harder to use, not easier. What changed is
+ * the letter: each panel is now marked by an icon and its own tone, so the
+ * screen can be scanned for "the red one" rather than read for "E".
+ *
+ * Worth knowing, since it is a real trade and not a free change: the letters
+ * were the manual's own section numbers, and a Director holding the printed
+ * brief beside this one can no longer cite a letter from the screen. If that
+ * cross-reference matters, the letters belong back in the printed output even
+ * if they stay off the screen — which is a change to the print stylesheet
+ * rather than to this component.
  */
 function WeeklyBriefTab() {
   const query = trpc.reports.weeklyBrief.useQuery();
@@ -154,7 +170,12 @@ function WeeklyBriefTab() {
 
   if (query.isLoading) return <Loading />;
   if (query.error || !query.data) {
-    return <ErrorPanel message={query.error?.message} onRetry={() => void utils.reports.weeklyBrief.invalidate()} />;
+    return (
+      <ErrorPanel
+        message={query.error?.message}
+        onRetry={() => void utils.reports.weeklyBrief.invalidate()}
+      />
+    );
   }
 
   const brief = query.data;
@@ -163,14 +184,19 @@ function WeeklyBriefTab() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-600">
-          Week ending <span className="font-medium text-slate-900">{brief.period}</span>
+          Week ending{" "}
+          <span className="font-medium text-slate-900">{brief.period}</span>
         </p>
         <PrintButton />
       </div>
 
       <StatTable
         items={[
-          { label: "Matters open", value: brief.totals.open, detail: "Still in progress" },
+          {
+            label: "Matters open",
+            value: brief.totals.open,
+            detail: "Still in progress",
+          },
           {
             label: "Past their due date",
             value: brief.totals.overdue,
@@ -180,7 +206,7 @@ function WeeklyBriefTab() {
           {
             label: "Urgent or escalated",
             value: brief.totals.urgent,
-            detail: "Section A below",
+            detail: "Urgent matters below",
             tone: brief.totals.urgent ? "text-amber-700" : undefined,
           },
           {
@@ -193,7 +219,8 @@ function WeeklyBriefTab() {
       />
 
       <CardPanel
-        title="A. Urgent matters"
+        icon={<Siren className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />}
+        title="Urgent matters"
         description="Matters marked urgent, and matters escalated for delay."
       >
         {brief.urgent.length === 0 ? (
@@ -214,7 +241,9 @@ function WeeklyBriefTab() {
                 <DenseRow key={item.id}>
                   <CaseCell id={item.id} caseNumber={item.caseNumber} />
                   <DenseCell>{item.teacherName}</DenseCell>
-                  <DenseCell className="text-slate-600">{item.province}</DenseCell>
+                  <DenseCell className="text-slate-600">
+                    {item.province}
+                  </DenseCell>
                   <DenseCell>
                     <StatusTag status={item.status} />
                   </DenseCell>
@@ -229,7 +258,10 @@ function WeeklyBriefTab() {
       </CardPanel>
 
       <CardPanel
-        title="B. Legal matters"
+        icon={
+          <Scale className="h-4 w-4 shrink-0 text-indigo-600" aria-hidden />
+        }
+        title="Legal matters"
         description="What the Legal Section is being asked to do, and how long it has been outstanding."
       >
         {brief.legal.length === 0 ? (
@@ -272,17 +304,30 @@ function WeeklyBriefTab() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <CategoryPanel
-          title="C. Appointment matters"
+          icon={
+            <CalendarCheck
+              className="h-4 w-4 shrink-0 text-sky-600"
+              aria-hidden
+            />
+          }
+          title="Appointment matters"
           category={brief.appointment}
         />
         <CategoryPanel
-          title="D. Industrial and General matters"
+          icon={
+            <Briefcase
+              className="h-4 w-4 shrink-0 text-violet-600"
+              aria-hidden
+            />
+          }
+          title="Industrial and General matters"
           category={brief.industrial}
         />
       </div>
 
       <CardPanel
-        title="E. Overdue matters"
+        icon={<Clock className="h-4 w-4 shrink-0 text-red-600" aria-hidden />}
+        title="Overdue matters"
         description="Matters past their due date, longest outstanding first."
       >
         {brief.overdue.length === 0 ? (
@@ -316,7 +361,10 @@ function WeeklyBriefTab() {
       </CardPanel>
 
       <CardPanel
-        title="F. Matters requiring a decision"
+        icon={
+          <Vote className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+        }
+        title="Matters requiring a decision"
         description="What the Director is being asked to decide on."
       >
         {brief.decisionsRequired.length === 0 ? (
@@ -338,7 +386,9 @@ function WeeklyBriefTab() {
                 <DenseRow key={item.id}>
                   <CaseCell id={item.id} caseNumber={item.caseNumber} />
                   <DenseCell>{item.teacherName}</DenseCell>
-                  <DenseCell className="text-slate-600">{item.matterType}</DenseCell>
+                  <DenseCell className="text-slate-600">
+                    {item.matterType}
+                  </DenseCell>
                   <DenseCell className="max-w-[260px] text-xs text-slate-600">
                     {item.issueRequiringDecision ?? "—"}
                   </DenseCell>
@@ -360,25 +410,44 @@ function WeeklyBriefTab() {
 
 /** Sections C and D: the same three counts, for one class of matter. */
 function CategoryPanel({
+  icon,
   title,
   category,
 }: {
+  icon?: ReactNode;
   title: string;
   category: { new: unknown[]; pending: unknown[]; resolved: unknown[] };
 }) {
   return (
-    <CardPanel title={title} description="New, pending and resolved.">
+    <CardPanel
+      icon={icon}
+      title={title}
+      description="New, pending and resolved."
+    >
       <div className="grid grid-cols-3 gap-3 text-center">
         {[
           { label: "New", count: category.new.length, tone: "text-sky-700" },
-          { label: "Pending", count: category.pending.length, tone: "text-violet-700" },
-          { label: "Resolved", count: category.resolved.length, tone: "text-emerald-700" },
+          {
+            label: "Pending",
+            count: category.pending.length,
+            tone: "text-violet-700",
+          },
+          {
+            label: "Resolved",
+            count: category.resolved.length,
+            tone: "text-emerald-700",
+          },
         ].map(item => (
-          <div key={item.label} className="rounded-md border border-slate-200 p-3">
+          <div
+            key={item.label}
+            className="rounded-md border border-slate-200 p-3"
+          >
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
               {item.label}
             </p>
-            <p className={`mt-1 text-2xl font-semibold tabular-nums ${item.tone}`}>
+            <p
+              className={`mt-1 text-2xl font-semibold tabular-nums ${item.tone}`}
+            >
               {item.count}
             </p>
           </div>
@@ -417,13 +486,24 @@ function MonthlyTab() {
       {query.isLoading ? (
         <Loading />
       ) : query.error || !query.data ? (
-        <ErrorPanel message={query.error?.message} onRetry={() => void utils.reports.monthly.invalidate()} />
+        <ErrorPanel
+          message={query.error?.message}
+          onRetry={() => void utils.reports.monthly.invalidate()}
+        />
       ) : (
         <>
           <StatTable
             items={[
-              { label: "Received", value: query.data.totals.received, detail: "Matters registered this month" },
-              { label: "Closed", value: query.data.totals.closed, detail: "Matters concluded this month" },
+              {
+                label: "Received",
+                value: query.data.totals.received,
+                detail: "Matters registered this month",
+              },
+              {
+                label: "Closed",
+                value: query.data.totals.closed,
+                detail: "Matters concluded this month",
+              },
               {
                 label: "Outstanding",
                 value: query.data.totals.outstanding,
@@ -433,7 +513,9 @@ function MonthlyTab() {
                 label: "Escalated",
                 value: query.data.totals.escalated,
                 detail: "At any level above the officer",
-                tone: query.data.totals.escalated ? "text-amber-700" : undefined,
+                tone: query.data.totals.escalated
+                  ? "text-amber-700"
+                  : undefined,
               },
             ]}
           />
@@ -498,7 +580,9 @@ function MonthlyTab() {
                       <DenseCell>
                         <StatusTag status={item.status} />
                       </DenseCell>
-                      <NumCell className="text-slate-600">{item.escalationLevel}</NumCell>
+                      <NumCell className="text-slate-600">
+                        {item.escalationLevel}
+                      </NumCell>
                     </DenseRow>
                   ))}
                 </DenseBody>
@@ -550,13 +634,16 @@ function QuarterlyTab() {
       {query.isLoading ? (
         <Loading />
       ) : query.error || !query.data ? (
-        <ErrorPanel message={query.error?.message} onRetry={() => void utils.reports.quarterly.invalidate()} />
+        <ErrorPanel
+          message={query.error?.message}
+          onRetry={() => void utils.reports.quarterly.invalidate()}
+        />
       ) : (
         <>
           <p className="text-sm text-slate-600">
             {query.data.label}{" "}
-            <span className="text-slate-500">({query.data.range})</span>, compared
-            with {query.data.comparedWith}.
+            <span className="text-slate-500">({query.data.range})</span>,
+            compared with {query.data.comparedWith}.
           </p>
 
           <StatTable
@@ -564,7 +651,10 @@ function QuarterlyTab() {
               {
                 label: "Received",
                 value: query.data.totals.received,
-                detail: was(query.data.totals.received, query.data.previous.received),
+                detail: was(
+                  query.data.totals.received,
+                  query.data.previous.received
+                ),
                 tone: deltaTone(
                   query.data.totals.received,
                   query.data.previous.received
@@ -573,7 +663,10 @@ function QuarterlyTab() {
               {
                 label: "Closed",
                 value: query.data.totals.closed,
-                detail: was(query.data.totals.closed, query.data.previous.closed),
+                detail: was(
+                  query.data.totals.closed,
+                  query.data.previous.closed
+                ),
                 tone: deltaTone(
                   query.data.totals.closed,
                   query.data.previous.closed
@@ -601,14 +694,23 @@ function QuarterlyTab() {
           >
             <div className="grid grid-cols-3 gap-3">
               {query.data.months.map(month => (
-                <div key={month.key} className="rounded-md border border-slate-200 p-3 text-center">
+                <div
+                  key={month.key}
+                  className="rounded-md border border-slate-200 p-3 text-center"
+                >
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
                     {month.label}
                   </p>
                   <p className="mt-1.5 text-sm text-slate-700">
-                    <span className="tabular-nums font-semibold">{month.received}</span> in
+                    <span className="tabular-nums font-semibold">
+                      {month.received}
+                    </span>{" "}
+                    in
                     <span className="mx-1 text-slate-400">/</span>
-                    <span className="tabular-nums font-semibold">{month.closed}</span> out
+                    <span className="tabular-nums font-semibold">
+                      {month.closed}
+                    </span>{" "}
+                    out
                   </p>
                 </div>
               ))}
@@ -661,22 +763,32 @@ function QuarterlyTab() {
                 <DenseBody>
                   {query.data.officers.map(row => (
                     <DenseRow key={row.officer}>
-                      <DenseCell className="font-medium">{row.officer}</DenseCell>
+                      <DenseCell className="font-medium">
+                        {row.officer}
+                      </DenseCell>
                       <NumCell>{row.received}</NumCell>
                       <NumCell>{row.closed}</NumCell>
                       <NumCell>{row.open}</NumCell>
                       <NumCell
-                        className={row.overdue ? "font-medium text-red-700" : undefined}
+                        className={
+                          row.overdue ? "font-medium text-red-700" : undefined
+                        }
                       >
                         {row.overdue}
                       </NumCell>
                       <NumCell
-                        className={row.escalations ? "text-amber-700" : undefined}
+                        className={
+                          row.escalations ? "text-amber-700" : undefined
+                        }
                       >
                         {row.escalations}
                       </NumCell>
                       <NumCell
-                        className={row.withoutAction ? "font-medium text-red-700" : undefined}
+                        className={
+                          row.withoutAction
+                            ? "font-medium text-red-700"
+                            : undefined
+                        }
                       >
                         {row.withoutAction}
                       </NumCell>
@@ -724,7 +836,12 @@ function OfficersTab() {
 
   if (query.isLoading) return <Loading />;
   if (query.error || !query.data) {
-    return <ErrorPanel message={query.error?.message} onRetry={() => void utils.reports.officerPerformance.invalidate()} />;
+    return (
+      <ErrorPanel
+        message={query.error?.message}
+        onRetry={() => void utils.reports.officerPerformance.invalidate()}
+      />
+    );
   }
 
   const rows = query.data;
@@ -764,7 +881,11 @@ function OfficersTab() {
                 <NumCell>{row.held}</NumCell>
                 <NumCell>{row.open}</NumCell>
                 <NumCell>{row.closed}</NumCell>
-                <NumCell className={row.overdue ? "font-medium text-red-700" : undefined}>
+                <NumCell
+                  className={
+                    row.overdue ? "font-medium text-red-700" : undefined
+                  }
+                >
                   {row.overdue}
                 </NumCell>
                 <NumCell
@@ -776,11 +897,15 @@ function OfficersTab() {
                 >
                   {row.overdueRate}%
                 </NumCell>
-                <NumCell className={row.escalations ? "text-amber-700" : undefined}>
+                <NumCell
+                  className={row.escalations ? "text-amber-700" : undefined}
+                >
                   {row.escalations}
                 </NumCell>
                 <NumCell
-                  className={row.withoutAction ? "font-medium text-red-700" : undefined}
+                  className={
+                    row.withoutAction ? "font-medium text-red-700" : undefined
+                  }
                 >
                   {row.withoutAction}
                 </NumCell>
@@ -805,7 +930,12 @@ function ComplianceTab() {
 
   if (query.isLoading) return <Loading />;
   if (query.error || !query.data) {
-    return <ErrorPanel message={query.error?.message} onRetry={() => void utils.reports.goldenRule.invalidate()} />;
+    return (
+      <ErrorPanel
+        message={query.error?.message}
+        onRetry={() => void utils.reports.goldenRule.invalidate()}
+      />
+    );
   }
 
   const { compliant, total, breaches } = query.data;
@@ -820,7 +950,10 @@ function ComplianceTab() {
         <ul className="space-y-2">
           {GOLDEN_RULE_PARTS.map(part => (
             <li key={part.key} className="flex gap-2 text-sm text-slate-700">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" aria-hidden />
+              <ShieldCheck
+                className="mt-0.5 h-4 w-4 shrink-0 text-teal-600"
+                aria-hidden
+              />
               {part.text}
             </li>
           ))}
@@ -829,8 +962,8 @@ function ComplianceTab() {
           <span className="text-2xl font-semibold tabular-nums text-slate-900">
             {rate}%
           </span>{" "}
-          of the {total} matter{total === 1 ? "" : "s"} on the register currently
-          comply.
+          of the {total} matter{total === 1 ? "" : "s"} on the register
+          currently comply.
         </p>
       </CardPanel>
 
@@ -840,7 +973,10 @@ function ComplianceTab() {
       >
         {breaches.length === 0 ? (
           <div className="py-8 text-center">
-            <ShieldCheck className="mx-auto h-8 w-8 text-emerald-500" aria-hidden />
+            <ShieldCheck
+              className="mx-auto h-8 w-8 text-emerald-500"
+              aria-hidden
+            />
             <p className="mt-2 text-sm text-slate-600">
               No matter on the register is currently breaching the Golden Rule.
             </p>
@@ -861,7 +997,8 @@ function ComplianceTab() {
                     <ul className="space-y-1">
                       {row.parts.map(part => (
                         <li key={part} className="text-sm text-red-700">
-                          {GOLDEN_RULE_PARTS.find(item => item.key === part)?.text ?? part}
+                          {GOLDEN_RULE_PARTS.find(item => item.key === part)
+                            ?.text ?? part}
                         </li>
                       ))}
                     </ul>

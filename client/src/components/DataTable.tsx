@@ -21,6 +21,7 @@ import type { ComponentProps, ReactNode } from "react";
 export function CardPanel({
   title,
   description,
+  icon,
   action,
   className,
   bodyClassName,
@@ -28,6 +29,18 @@ export function CardPanel({
 }: {
   title?: string;
   description?: string;
+  /**
+   * A mark shown to the left of the title, for panels that are identifiable at a
+   * glance across a long screen.
+   *
+   * Decorative, and the caller is expected to pass an `aria-hidden` icon: the
+   * title beside it already names the panel, so a described icon is the same
+   * label twice. It is a slot rather than a name because the tone is part of the
+   * meaning — an overdue panel in red and a settled one in the same grey are
+   * different signals, and a component that picked the colour itself could not
+   * tell them apart.
+   */
+  icon?: ReactNode;
   action?: ReactNode;
   className?: string;
   /** Override for panels holding a full-bleed table or chart. */
@@ -35,18 +48,25 @@ export function CardPanel({
   children: ReactNode;
 }) {
   return (
-    <section className={cn("rounded-lg border border-slate-200 bg-white", className)}>
+    <section
+      className={cn("rounded-lg border border-slate-200 bg-white", className)}
+    >
       {title || action ? (
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
             {title ? (
-              <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                {icon}
+                {title}
+              </h2>
             ) : null}
             {description ? (
               <p className="mt-0.5 text-xs text-slate-600">{description}</p>
             ) : null}
           </div>
-          {action ? <div className="flex shrink-0 items-center gap-2">{action}</div> : null}
+          {action ? (
+            <div className="flex shrink-0 items-center gap-2">{action}</div>
+          ) : null}
         </header>
       ) : null}
       <div className={cn("p-4", bodyClassName)}>{children}</div>
@@ -66,7 +86,10 @@ export function DenseTable({
         fixed && "max-h-[70vh] overflow-y-auto"
       )}
     >
-      <table className={cn("w-full border-collapse text-sm", className)} {...props} />
+      <table
+        className={cn("w-full border-collapse text-sm", className)}
+        {...props}
+      />
     </div>
   );
 }
@@ -75,12 +98,17 @@ export function DenseHeader({ className, ...props }: ComponentProps<"thead">) {
   return (
     // `sticky` needs the scroll container above to be the offset parent, which
     // it is: the wrapper inside `DenseTable` is the scroller.
-    <thead className={cn("sticky top-0 z-10 bg-slate-50", className)} {...props} />
+    <thead
+      className={cn("sticky top-0 z-10 bg-slate-50", className)}
+      {...props}
+    />
   );
 }
 
 export function DenseBody({ className, ...props }: ComponentProps<"tbody">) {
-  return <tbody className={cn("divide-y divide-slate-100", className)} {...props} />;
+  return (
+    <tbody className={cn("divide-y divide-slate-100", className)} {...props} />
+  );
 }
 
 export function DenseRow({ className, ...props }: ComponentProps<"tr">) {
@@ -109,10 +137,7 @@ export function DenseHead({ className, ...props }: ComponentProps<"th">) {
 export function DenseCell({ className, ...props }: ComponentProps<"td">) {
   return (
     <td
-      className={cn(
-        "px-3 py-2 align-top text-slate-800",
-        className
-      )}
+      className={cn("px-3 py-2 align-top text-slate-800", className)}
       {...props}
     />
   );
@@ -169,22 +194,30 @@ export function StatTable({
   items,
   className,
 }: {
-  items: { label: string; value: number | string; detail?: string; tone?: string }[];
+  items: {
+    label: string;
+    value: number | string;
+    detail?: string;
+    tone?: string;
+  }[];
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "grid gap-3 sm:grid-cols-2 lg:grid-cols-4",
-        className
-      )}
-    >
+    <div className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-4", className)}>
       {items.map(item => (
-        <div key={item.label} className="rounded-lg border border-slate-200 bg-white p-4">
+        <div
+          key={item.label}
+          className="rounded-lg border border-slate-200 bg-white p-4"
+        >
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
             {item.label}
           </p>
-          <p className={cn("mt-1.5 text-2xl font-semibold tabular-nums", item.tone ?? "text-slate-900")}>
+          <p
+            className={cn(
+              "mt-1.5 text-2xl font-semibold tabular-nums",
+              item.tone ?? "text-slate-900"
+            )}
+          >
             {item.value}
           </p>
           {item.detail ? (
