@@ -21,10 +21,18 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { ClipboardList, FilePlus2, LayoutDashboard, Loader2, LogOut, PanelLeft, ShieldCheck } from "lucide-react";
+import {
+  ClipboardList,
+  FilePlus2,
+  LayoutDashboard,
+  Loader2,
+  LogOut,
+  PanelLeft,
+  ShieldCheck,
+} from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 import { can, canAny, type Capability } from "@shared/access";
 import type { Role } from "@shared/roles";
@@ -55,8 +63,18 @@ const menuItems: {
 }[] = [
   { icon: LayoutDashboard, label: "Overview", path: "/" },
   { icon: ClipboardList, label: "Case register", path: "/cases" },
-  { icon: FilePlus2, label: "Register matter", path: "/cases/new", requires: "matter:register" },
-  { icon: ShieldCheck, label: "Reports", path: "/reports", requires: "report:view" },
+  {
+    icon: FilePlus2,
+    label: "Register matter",
+    path: "/cases/new",
+    requires: "matter:register",
+  },
+  {
+    icon: ShieldCheck,
+    label: "Reports",
+    path: "/reports",
+    requires: "report:view",
+  },
   { icon: Settings, label: "Settings", path: "/settings" },
   // Any of the four platform capabilities opens this screen, not just
   // platform:users: the tabs behind it are gated individually, and the
@@ -65,7 +83,12 @@ const menuItems: {
     icon: Wrench,
     label: "Administration",
     path: "/admin",
-    requiresAny: ["platform:users", "platform:oversight", "platform:audit", "platform:stats"],
+    requiresAny: [
+      "platform:users",
+      "platform:oversight",
+      "platform:audit",
+      "platform:stats",
+    ],
   },
 ];
 
@@ -117,11 +140,13 @@ export default function DashboardLayout({
   // page, at /login, is the only place credentials are entered.
   useEffect(() => {
     if (loading || user) return;
-    router.replace(pathname ? `/login?next=${encodeURIComponent(pathname)}` : "/login");
+    router.replace(
+      pathname ? `/login?next=${encodeURIComponent(pathname)}` : "/login"
+    );
   }, [loading, user, pathname, router]);
 
   if (loading) {
-    return <DashboardLayoutSkeleton />
+    return <DashboardLayoutSkeleton />;
   }
 
   if (!user) {
@@ -273,9 +298,34 @@ function DashboardLayoutContent({
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
+                    {/*
+                     * The officer's photo when they have uploaded one, and their
+                     * initial when they have not. This block was the initial alone,
+                     * so an officer who had set a photo on the settings screen
+                     * still saw "J" here — the two screens disagreed about who
+                     * they were, and the sidebar is the one present on every page.
+                     *
+                     * A plain img through the storage proxy rather than
+                     * next/image, for the reason in AvatarUpload: the proxy
+                     * answers with a signed redirect and sets the content type, so
+                     * there is no optimisable asset to hand the optimiser.
+                     */}
+                    {user?.avatarKey ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/files/${user.avatarKey}`}
+                        alt={
+                          user.name ? `${user.name}'s photo` : "Officer photo"
+                        }
+                        width={36}
+                        height={36}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <AvatarFallback className="text-xs font-medium">
+                        {user?.name?.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    )}
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
                     <p className="text-sm font-medium truncate leading-none">
@@ -312,9 +362,9 @@ function DashboardLayoutContent({
       <SidebarInset>
         {isMobile && (
           <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-              <div className="flex items-center gap-2">
-                <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-                <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
+              <div className="flex items-center gap-3">
                 <div className="flex flex-col gap-1">
                   <span className="tracking-tight text-foreground">
                     {activeMenuItem?.label ?? "Menu"}
@@ -332,8 +382,16 @@ function DashboardLayoutContent({
                   </kbd>
                 </Button>
               </div>
-              <div className="flex items-center gap-1.5" aria-label="Organisation logos">
-                <OrganisationLogos markClassName="h-8 w-11" sizes="48px" width={48} height={36} />
+              <div
+                className="flex items-center gap-1.5"
+                aria-label="Organisation logos"
+              >
+                <OrganisationLogos
+                  markClassName="h-8 w-11"
+                  sizes="48px"
+                  width={48}
+                  height={36}
+                />
               </div>
             </div>
           </div>
