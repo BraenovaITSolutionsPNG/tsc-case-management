@@ -2,29 +2,36 @@
 
 import { PageLoader } from "@/components/BrandLoader";
 import { onHandoverChange, onSignOut } from "@/lib/postSignIn";
-import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 
 /**
- * The platform's own full-screen loader, for moving around inside it.
+ * The platform's own full-screen loader, for signing out.
  *
- * This is the original loader — the ring, the arc and the case file — put back
- * where it used to be, covering the two things an officer does once they are in:
- * moving between the tabs, and signing out. Until now the tabs showed only a thin
- * bar along the top, which is easy to miss on a machine that is also doing
- * something else, and signing out showed the layout's grey skeleton — a page of
- * grey boxes standing in for a screen they had just asked to leave.
+ * This is the original loader — the ring, the arc and the case file — and it is
+ * here for one job.
  *
- * Three rules keep it from becoming the thing it is replacing:
+ * It used to cover moving between the tabs as well, which turned out to be the
+ * wrong instinct on both counts. A full-screen takeover is the most disruptive
+ * thing an interface can do, and spending it on a move that takes a fraction of
+ * a second means the officer's first impression of every other tab is a white
+ * screen with a spinner that has already gone. It also made the app *feel*
+ * slower, which is the opposite of what a loader is for: the bar it replaced was
+ * easy to miss, and the takeover was impossible to miss, and neither of those is
+ * the same thing as being fast.
  *
- *  - It never appears during a post-sign-in handover. That screen is the one
- *    moment with a deliberate piece of theatre, and two full-screen loaders
- *    stacking on each other is the sequence this app has been trying to get rid
- *    of. The gate publishes when it is up and this stands down.
- *  - It is never shown for an instant. A takeover that flashes for 50ms is worse
- *    than no takeover at all, so it appears only once a move has been running
- *    long enough to be worth covering, and then stays at least that long.
- *  - It covers nothing once the move is done, and always comes down.
+ * So moving between tabs now says nothing at all. The navigation items are real
+ * links, which means App Router has the next screen's payload in hand before the
+ * click, and each screen keeps the inline skeletons it already had for data that
+ * genuinely has not arrived. What is left is a move that either happens instantly
+ * or shows the real shape of the page loading into it.
+ *
+ * Sign-out stays, because it is a different thing: the session is ending, the
+ * screen is about to be destroyed by a full document load, and an officer who has
+ * just asked to leave deserves to be told the platform heard them rather than
+ * watching the page quietly change underneath them.
+ *
+ * It also stands down whenever the branded post-sign-in screen is up, so the two
+ * full-screen loaders can never stack.
  */
 export function PlatformPageLoader() {
   return (
@@ -35,16 +42,7 @@ export function PlatformPageLoader() {
 }
 
 function PlatformPageLoaderInner() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
   const [visible, setVisible] = useState(false);
-  // The route this loader last settled on. A change is what counts as a move; a
-  // first render is not one, or every page load would show a takeover.
-  const settled = useRef(`${pathname}?${searchParams.toString()}`);
-  const shownAt = useRef(0);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handover = useRef(false);
   const [, forceHandoverCheck] = useState(0);
 
@@ -52,50 +50,24 @@ function PlatformPageLoaderInner() {
     () =>
       onHandoverChange(active => {
         handover.current = active;
-        // Re-render so the element below reflects it; the loader is driven by
-        // timers otherwise and would not notice a sibling's state changing.
+        // Re-render so the element below reflects it. The state is otherwise
+        // driven by the sign-out event, and a sibling changing state would
+        // otherwise go unnoticed here.
         forceHandoverCheck(n => n + 1);
         if (active) setVisible(false);
       }),
     []
   );
 
-  useEffect(() => onSignOut(() => setVisible(true)), []);
-
-  useEffect(() => {
-    const current = `${pathname}?${searchParams.toString()}`;
-    if (current === settled.current) return;
-    settled.current = current;
-
-    if (handover.current) return;
-
-    // Only once the move has been running long enough to be worth covering.
-    showTimer.current = setTimeout(() => {
-      shownAt.current = Date.now();
-      setVisible(true);
-    }, MOVE_THRESHOLD_MS);
-
-    return () => {
-      if (showTimer.current) clearTimeout(showTimer.current);
-    };
-  }, [pathname, searchParams]);
-
-  // Hides once the move is over, but never sooner than the loader has been up
-  // long enough to read as feedback rather than a flicker.
-  useEffect(() => {
-    if (!visible) return;
-
-    const settle = setTimeout(() => {
-      const heldFor = Date.now() - shownAt.current;
-      const remaining = Math.max(0, MIN_VISIBLE_MS - heldFor);
-      hideTimer.current = setTimeout(() => setVisible(false), remaining);
-    }, SETTLE_MS);
-
-    return () => {
-      clearTimeout(settle);
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-    };
-  }, [visible]);
+  useEffect(
+    () =>
+      onSignOut(() => {
+        // The branded screen outranks this one, whatever order they arrive in.
+        if (handover.current) return;
+        setVisible(true);
+      }),
+    []
+  );
 
   if (!visible) return null;
 
@@ -105,24 +77,3 @@ function PlatformPageLoaderInner() {
     </div>
   );
 }
-
-/**
- * How long a move must be running before the takeover appears.
- *
- * Below this, a full-screen loader is a flash: the officer sees a white screen
- * with a spinner that has already gone by the time they read it. Above it, the
- * move is slow enough that being told so is a kindness.
- */
-const MOVE_THRESHOLD_MS = 140;
-
-/** How long before the route has settled to conclude that the move is over. */
-const SETTLE_MS = 60;
-
-/**
- * How long the loader is held once it appears, so it is never a flicker.
- *
- * The same reasoning as the bar this replaces, which used 320ms. Kept identical
- * so a move that used to draw a brief bar now draws a brief takeover rather than
- * a longer one: the officer has learned that length already.
- */
-const MIN_VISIBLE_MS = 320;
