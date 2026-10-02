@@ -19,6 +19,61 @@
 import { readFileSync } from "node:fs";
 
 /**
+ * The connection options the *request path* uses: the credentials above plus how
+ * many connections to hold and how long to wait for one.
+ *
+ * Separate from `databaseCredentials` because the pool settings are only correct
+ * for a long-lived server, and drizzle-kit shares those credentials. A migration
+ * wants one connection held for the whole run and is perfectly happy waiting for
+ * it; a serverless function wants neither, and the two cannot be given the same
+ * numbers.
+ *
+ * `max` bounds how much of the database this deployment may hold at once, and it
+ * is deliberately modest. The instinct is to raise it when a screen is slow, but
+ * this process count is not one: a serverless deployment runs many instances of
+ * it at once, and each brings its own pool. Ten connections per instance is a
+ * hundred connections from ten instances, and the hosted database allows 200 in
+ * total — so the setting that looks generous locally is what exhausts the server
+ * in production, as `EMAXCONN: max client connections reached, limit: 200`. A
+ * small pool plus the transaction pooler in front of it is the combination that
+ * scales: the pooler multiplexes many clients over a few backends, so this
+ * number no longer decides how much of the database the deployment may use.
+ *
+ * Five, rather than the one a screen's parallel burst wants or the ten the
+ * driver defaults to. Worth being precise about what this is and is not for: it
+ * was raised from three to eight and page load did not measurably change
+ * (2.4s and 3.4s for six parallel queries either way), so it is here to bound
+ * the connection count and to leave room for a burst — not because a larger
+ * number makes a screen faster. The per-request cost this app actually pays is
+ * revalidating the session on every call, and that is not a pool setting.
+ *
+ * `connectionTimeoutMillis` is the one that turns a hang into an answer. Left at
+ * node-postgres's default of 0, a request that cannot get a connection waits
+ * forever, and the officer's screen simply never finishes loading — with no
+ * error, no log line, and nothing to diagnose. A bounded wait fails the request
+ * instead, which the query layer already retries and reports.
+ */
+export type RuntimeConnection = DatabaseCredentials & {
+  max: number;
+  idleTimeoutMillis: number;
+  connectionTimeoutMillis: number;
+  allowExitOnIdle: boolean;
+};
+
+export function runtimeConnection(): RuntimeConnection {
+  return {
+    ...databaseCredentials(),
+    max: 5,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+    // The migration and seed scripts open a pool and then have nothing left to
+    // do; without this they sit there holding an idle connection until the
+    // process is killed.
+    allowExitOnIdle: true,
+  };
+}
+
+/**
  * The credential fields, plus TLS. Deliberately a subset of node-postgres's
  * `PoolConfig` that drizzle-kit also accepts as `dbCredentials`, so the same
  * object is valid in both places.

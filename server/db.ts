@@ -21,7 +21,7 @@ import {
   type InsertCase,
   users,
 } from "../drizzle/schema";
-import { databaseCredentials, describeTls } from "./_core/databaseConnection";
+import { describeTls, runtimeConnection } from "./_core/databaseConnection";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _flavourChecked = false;
@@ -46,7 +46,9 @@ async function logServerFlavour(db: NonNullable<ReturnType<typeof drizzle>>) {
     // driver returned a bare array instead, which is why this is not one.
     const rows = (result as unknown as { rows: { version?: string }[] }).rows;
     const version = rows?.[0]?.version ?? "unknown";
-    console.log(`[Database] Connected to PostgreSQL ${version} — ${describeTls()}`);
+    console.log(
+      `[Database] Connected to PostgreSQL ${version} — ${describeTls()}`
+    );
   } catch (error) {
     console.warn("[Database] Could not determine server version:", error);
   }
@@ -74,7 +76,11 @@ export async function getDb() {
     try {
       // The credentials as an object rather than as the URL itself, because the
       // TLS block a hosted database requires has nowhere to live in a URL.
-      _db = drizzle({ connection: databaseCredentials() });
+      // `runtimeConnection` rather than `databaseCredentials`: this is the request
+      // path, so it gets a pool sized for a serverless instance and a bounded
+      // wait for a connection. drizzle-kit and the scripts keep the bare
+      // credentials, which is what a migration wants.
+      _db = drizzle({ connection: runtimeConnection() });
       await logServerFlavour(_db);
     } catch (error) {
       console.error("[Database] Failed to connect:", error);
@@ -948,17 +954,16 @@ export async function listUsers() {
   const db = await getDb();
   if (!db) return [];
   const rows = await db.select().from(users).orderBy(users.role, users.name);
-  return Promise.all(
-    rows.map(async (row) => ({
-      ...row,
-      // Whether this officer can sign in at all, for the admin screen. Reads
-      // `authUserId` rather than a stored hash: the column is the sign-inable
-      // state, and a hash's presence was never evidence of anything but that
-      // one had been set.
-      isProvisioned: Boolean(row.authUserId),
-      references: await getUserReferences(row.id),
-    }))
-  );
+  const references = await getUserReferenceCounts();
+  return rows.map(row => ({
+    ...row,
+    // Whether this officer can sign in at all, for the admin screen. Reads
+    // `authUserId` rather than a stored hash: the column is the sign-inable
+    // state, and a hash's presence was never evidence of anything but that
+    // one had been set.
+    isProvisioned: Boolean(row.authUserId),
+    references: references.get(row.id) ?? NO_REFERENCES,
+  }));
 }
 
 /** True when the username is already taken by another account. */
@@ -1039,6 +1044,132 @@ export async function getUserReferences(id: number) {
 
 async function countRows(query: Promise<{ id: number }[]>) {
   return (await query).length;
+}
+
+/** What removing an account would leave behind, per officer. */
+type UserReferenceCounts = {
+  casesCreated: number;
+  casesAssigned: number;
+  events: number;
+  referrals: number;
+  documents: number;
+  total: number;
+};
+
+const NO_REFERENCES: UserReferenceCounts = {
+  casesCreated: 0,
+  casesAssigned: 0,
+  events: 0,
+  referrals: 0,
+  documents: 0,
+  total: 0,
+};
+
+/**
+ * The same counts `getUserReferences` returns, for every account, in one query
+ * per table instead of five per officer.
+ *
+ * `listUsers` used to call `getUserReferences` once per row, and each of those
+ * issued five queries of its own — so the administration screen asked the
+ * database thirty-one questions to draw one table, and asked all thirty at once
+ * because the per-row work was a `Promise.all`. That is what exhausted the
+ * server's connections: the failure is `EMAXCONN`, PostgreSQL refusing the
+ * 201st client, and it arrives as a screen that never stops loading rather than
+ * as anything naming a limit. Six accounts were enough to trip it on a
+ * serverless deployment, where every instance brings its own pool.
+ *
+ * Grouping by officer collapses the same work into five queries that each
+ * return one row per officer that has references, and an officer with none
+ * simply has no entry — which is why the caller falls back to `NO_REFERENCES`
+ * rather than expecting a zero row.
+ *
+ * `count()` rather than counting fetched rows in JavaScript, which is what
+ * `countRows` does for the single-officer case. The difference is the whole
+ * point here: the register is small now and is not going to stay small, and
+ * this reads a number per group instead of every matching row.
+ */
+async function getUserReferenceCounts(): Promise<
+  Map<number, UserReferenceCounts>
+> {
+  const db = await getDb();
+  const counts = new Map<number, UserReferenceCounts>();
+  if (!db) return counts;
+
+  // `owner` is the officer the row hangs off and `total` how many hang off it.
+  // The id comes back as a string through some drivers, so it is coerced rather
+  // than trusted to be a number: a Map keyed by "781" would silently answer zero
+  // for the officer whose id is 781.
+  const groupByOwner = (rows: { owner: unknown; total: unknown }[]) => {
+    const map = new Map<number, number>();
+    for (const row of rows) map.set(Number(row.owner), Number(row.total));
+    return map;
+  };
+
+  const [created, assigned, actor, referred, filed] = await Promise.all([
+    groupByOwner(
+      await db
+        .select({ owner: cases.createdById, total: count() })
+        .from(cases)
+        .where(isNotNull(cases.createdById))
+        .groupBy(cases.createdById)
+    ),
+    groupByOwner(
+      await db
+        .select({ owner: cases.assignedOfficerId, total: count() })
+        .from(cases)
+        .where(isNotNull(cases.assignedOfficerId))
+        .groupBy(cases.assignedOfficerId)
+    ),
+    groupByOwner(
+      await db
+        .select({ owner: caseEvents.actorId, total: count() })
+        .from(caseEvents)
+        .where(isNotNull(caseEvents.actorId))
+        .groupBy(caseEvents.actorId)
+    ),
+    groupByOwner(
+      await db
+        .select({ owner: referrals.referredById, total: count() })
+        .from(referrals)
+        .where(isNotNull(referrals.referredById))
+        .groupBy(referrals.referredById)
+    ),
+    groupByOwner(
+      await db
+        .select({ owner: caseDocuments.loggedById, total: count() })
+        .from(caseDocuments)
+        .where(isNotNull(caseDocuments.loggedById))
+        .groupBy(caseDocuments.loggedById)
+    ),
+  ]);
+
+  const owners = new Set<number>([
+    ...created.keys(),
+    ...assigned.keys(),
+    ...actor.keys(),
+    ...referred.keys(),
+    ...filed.keys(),
+  ]);
+
+  for (const id of owners) {
+    const reference: UserReferenceCounts = {
+      casesCreated: created.get(id) ?? 0,
+      casesAssigned: assigned.get(id) ?? 0,
+      events: actor.get(id) ?? 0,
+      referrals: referred.get(id) ?? 0,
+      documents: filed.get(id) ?? 0,
+      total: 0,
+    };
+    reference.total =
+      reference.casesCreated +
+      reference.casesAssigned +
+      reference.events +
+      reference.referrals +
+      reference.documents;
+    counts.set(id, reference);
+  }
+
+  return counts;
 }
 
 /**
@@ -1175,10 +1306,7 @@ export async function getUserById(id: number) {
 export async function clearAuthLink(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db
-    .update(users)
-    .set({ authUserId: null })
-    .where(eq(users.id, id));
+  await db.update(users).set({ authUserId: null }).where(eq(users.id, id));
 }
 
 export async function createUser(input: {
@@ -1211,10 +1339,17 @@ async function getUserByAuthUserIdOrOpenId(
   authUserId: string | null | undefined,
   openId: string
 ) {
-  if (authUserId) return getUserById((await listUsers()).find(u => u.authUserId === authUserId)?.id ?? -1);
+  if (authUserId)
+    return getUserById(
+      (await listUsers()).find(u => u.authUserId === authUserId)?.id ?? -1
+    );
   const db = await getDb();
   if (!db) return undefined;
-  const [row] = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
   return row;
 }
 

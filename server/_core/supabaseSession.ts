@@ -23,6 +23,15 @@ export type AuthenticatedUser = Omit<User, "passwordHash"> & {
 };
 
 /**
+ * How far `lastSignedIn` may drift before it is written again.
+ *
+ * A sign-in timestamp is not a heartbeat and nothing reads it at a precision
+ * finer than this, so resolving it to the minute costs nothing and buys a page
+ * of parallel requests one write instead of one each.
+ */
+const LAST_SIGNED_IN_RESOLUTION_MS = 5 * 60_000;
+
+/**
  * Resolves the caller from the Supabase session cookie on this request.
  *
  * The order of the three checks below is the whole of the authorization story
@@ -41,7 +50,7 @@ export type AuthenticatedUser = Omit<User, "passwordHash"> & {
  *     on every request, and the one place that cannot be forgotten is the one
  *     that builds the identity.
  *
-* `getUser` revalidates against Supabase on every call rather than trusting the
+ * `getUser` revalidates against Supabase on every call rather than trusting the
  * cookie's contents, which is what makes deleting or disabling an account take
  * effect immediately instead of at token expiry. It also means a refreshed
  * access token is written back through the cookie adapter as a side effect, so the
@@ -106,7 +115,29 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
     );
   }
 
-  await touchLastSignedIn(user.id, new Date());
+  // Written at most this often, rather than on every request that carries a
+  // session. The field records when an officer was last seen, and a screen that
+  // fires four requests would otherwise record four sign-ins.
+  //
+  // The cost was not four writes. It was that they all target the *same row*:
+  // every request from one officer contends for that row's lock, so a page that
+  // loads in parallel turns into a queue of transactions each waiting on the
+  // one before it. On a deployment whose database allows 200 connections, that
+  // queue is what exhausted them — `EMAXCONN: max client connections reached` —
+  // and it surfaced as screens that never finished loading rather than as
+  // anything that named a limit. Throttling turns a page of parallel requests
+  // into one write and some reads, which is what it should have been.
+  //
+  // Five minutes is short enough that "last seen" stays true for an oversight
+  // screen, and long enough that ordinary use writes once and then stops.
+  const lastSignedIn = user.lastSignedIn;
+  const stale =
+    !lastSignedIn ||
+    Date.now() - lastSignedIn.getTime() >= LAST_SIGNED_IN_RESOLUTION_MS;
+
+  if (stale) {
+    await touchLastSignedIn(user.id, new Date());
+  }
 
   return { ...user, authUserId: data.user.id } as AuthenticatedUser;
 }
