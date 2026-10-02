@@ -78,11 +78,36 @@ export const ENV = {
 
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+
+  /**
+   * The Supabase Storage bucket holding case files and avatars.
+   *
+   * Defaults to `case-files` rather than being required, because the project
+   * this platform runs on already *is* the storage provider: the same service
+   * role key that creates an account can write an object, and the bucket needs
+   * to exist either way. An explicit value is still honoured so the bucket can
+   * be named, or pointed somewhere else, without a code change.
+   */
+  storageBucket: process.env.SUPABASE_STORAGE_BUCKET ?? "case-files",
+
+  /**
+   * Whether Supabase Storage can serve as the object store.
+   *
+   * Needs the service role key, which is the credential that bypasses RLS and so
+   * the only one that can write to a private bucket. The anon key cannot: a
+   * private bucket rejects it, which is the correct answer rather than a
+   * misconfiguration to work around.
+   */
+  get hasSupabaseStorage() {
+    return Boolean(this.supabaseServiceRoleKey && this.storageBucket);
+  },
+
   /**
    * Whether object storage falls back to the local disk.
    *
-   * S3 is the real backend and is used whenever the Forge credentials are set.
-   * On a development machine they usually are not, and refusing to start an
+   * A hosted bucket is the real backend and is used whenever one is reachable —
+   * now Supabase Storage, and the Forge/S3 presigner where that is configured
+   * instead. On a development machine none usually is, and refusing to start an
    * upload because of it makes the platform impossible to exercise - so
    * development with no credentials writes to a directory under the project
    * instead.
@@ -94,6 +119,6 @@ export const ENV = {
    * credentials is a misconfiguration and fails loudly instead.
    */
   get useLocalStorage() {
-    return !this.isProduction && !this.forgeApiUrl;
+    return !this.isProduction && !this.forgeApiUrl && !this.hasSupabaseStorage;
   },
 };

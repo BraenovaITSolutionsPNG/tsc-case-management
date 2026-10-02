@@ -465,6 +465,14 @@ export const appRouter = router({
         }
 
         const extension = AVATAR_EXTENSIONS[actual];
+        // The key the officer is replacing, read before it is overwritten. The
+        // stored key carries a content hash, so a second image is a second
+        // object rather than a replacement of the first, and nothing downstream
+        // removes it — which meant every changed profile picture left the old
+        // one in the bucket forever. Four avatars and no way back is a slow leak
+        // nobody would notice until the bucket is full.
+        const previous = ctx.user.avatarKey;
+
         try {
           const { key } = await storagePut(
             // Keyed by user id, not by name: the name changes and the key must
@@ -473,7 +481,28 @@ export const appRouter = router({
             buffer,
             actual
           );
-          return setUserAvatar(ctx.user.id, key);
+          // The row's return value, not `key`, so the shape the interface has
+          // always received from this mutation is unchanged by the cleanup below.
+          const saved = await setUserAvatar(ctx.user.id, key);
+
+          // Only after the row points at the new object, and only when the key
+          // actually changed, so a re-upload of identical bytes does not try to
+          // delete the object it just wrote.
+          if (previous && previous !== key) {
+            // A failure here is logged and swallowed. The officer's new image is
+            // already saved and already referenced; refusing the upload over an
+            // orphaned file would trade a cosmetic problem for a lost upload.
+            try {
+              await storageDelete(previous);
+            } catch (cause) {
+              console.warn(
+                `[Auth] replaced avatar "${previous}" was left in storage:`,
+                cause
+              );
+            }
+          }
+
+          return saved;
         } catch (cause) {
           // A storage failure is a server-side condition, not something the
           // officer did wrong. It is reported as such and logged in full on the
@@ -488,7 +517,28 @@ export const appRouter = router({
         }
       }),
     removeAvatar: protectedProcedure.mutation(async ({ ctx }) => {
-      return clearUserAvatar(ctx.user.id);
+      // The object goes with the column. Clearing the reference alone would
+      // leave the file in the bucket with nothing pointing at it, and this is
+      // the only place an officer can ask for their image to be taken down —
+      // "remove my photo" has to mean the photo is gone, not that the app
+      // stopped showing it. A storage failure is logged rather than raised, for
+      // the same reason the replace above swallows it: the column is the record
+      // of whether the officer has an avatar, and it is cleared either way.
+      const previous = ctx.user.avatarKey;
+      const result = await clearUserAvatar(ctx.user.id);
+
+      if (previous) {
+        try {
+          await storageDelete(previous);
+        } catch (cause) {
+          console.warn(
+            `[Auth] removed avatar "${previous}" was left in storage:`,
+            cause
+          );
+        }
+      }
+
+      return result;
     }),
     /**
      * Sign out.
