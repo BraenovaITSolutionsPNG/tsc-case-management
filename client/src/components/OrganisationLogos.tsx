@@ -6,6 +6,11 @@ import Image from "next/image";
 /**
  * The two organisation marks, shown together at the head of the navigation.
  *
+ * Order is national emblem first, then the Commission. The crest reads first
+ * because it is the state and the Commission is one office within it — the
+ * reverse would put a department's mark ahead of the country's, which is the
+ * order a government system is not meant to be read in.
+ *
  * Both source images are 4:3 landscape artwork rather than square emblems, so
  * every slot renders them with `object-contain`. A logo stretched to fill its
  * box is the single most recognisable way to make a government system look
@@ -25,16 +30,16 @@ import Image from "next/image";
 
 const MARKS = [
   {
-    src: tscLogo,
-    alt: "Teachers Service Commission logo",
-    short: "TSC",
-    title: "Kenya Teachers Service Commission",
-  },
-  {
     src: nationalEmblem,
     alt: "National emblem of Papua New Guinea",
     short: "PNG",
     title: "National emblem of Papua New Guinea",
+  },
+  {
+    src: tscLogo,
+    alt: "Teachers Service Commission logo",
+    short: "TSC",
+    title: "Papua New Guinea Teachers Service Commission",
   },
 ] as const;
 

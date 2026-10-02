@@ -76,51 +76,59 @@ const REMEMBER_KEY = "tsc-remembered-email";
 const COPYRIGHT = "© PNG - Teachers Service Commission 2026";
 
 /**
- * Plum, on one hue ramp so nothing on the screen is fighting anything else.
+ * Blue, on one hue ramp so nothing on the screen is fighting anything else.
  *
- * Four steps of violet carry the whole composition, each with a job:
+ * Four steps of blue carry the whole composition, each with a job:
  *
  * - `action` is the only interactive colour. Everything you can press is this
- *   exact violet, which is what lets a form on a large colour field still be
+ *   exact blue, which is what lets a form on a large colour field still be
  *   scanned in one pass.
  * - `emphasis` is a step deeper, for the two words in the promise that carry
  *   the argument. Darker than the button on purpose: a highlight that out-shouts
  *   the call to action is a highlight in the wrong place.
  * - `wordmark` is deeper again. It is the one piece of type on the panel big
  *   enough to carry a colour on its own.
- * - The panel is the same hue at four per cent, laid as a vertical wash so the
- *   foot of the screen sits fractionally warmer than its head.
+ * - The panel is the same hue at a few per cent, laid as a vertical wash so the
+ *   foot of the screen sits fractionally cooler than its head.
  *
- * The greys are violet-biased rather than neutral. A true neutral grey next to
- * a violet panel reads as a different material — a photograph pasted onto a
- * poster — so the ink, the muted text and every hairline are the same hue at
- * low saturation.
+ * The greys are blue-biased rather than neutral. A true neutral grey next to a
+ * blue panel reads as a different material — a photograph pasted onto a poster
+ * — so the ink, the muted text and every hairline are the same hue at low
+ * saturation.
+ *
+ * `muted` and `faint` are darker than a straight swap of the previous violet
+ * steps would have given, and deliberately so. The violet they replace measured
+ * 3.98:1 for `muted` on the panel and 2.67:1 for `faint` on the card, both under
+ * the 4.5:1 that body text needs — the panel copy and the field placeholders
+ * were the two least legible things on the screen and read as a styling choice
+ * rather than a fault. Every pairing below is now at or above 4.5:1, and
+ * `faint` clears 3:1, which is the bar for the placeholder it is used for.
  */
 const PALETTE = {
-  "--login-action": "#7C3AED",
-  "--login-action-hover": "#6D28D9",
-  "--login-action-ring": "rgba(124, 58, 237, 0.28)",
-  "--login-action-ring-soft": "rgba(124, 58, 237, 0.45)",
-  "--login-emphasis": "#6D28D9",
-  "--login-wordmark": "#4C1D95",
-  "--login-panel-top": "#F8F0F6",
-  "--login-panel-bottom": "#E9D5E6",
-  "--login-page": "#FAF8FC",
+  "--login-action": "#2563EB",
+  "--login-action-hover": "#1D4ED8",
+  "--login-action-ring": "rgba(37, 99, 235, 0.28)",
+  "--login-action-ring-soft": "rgba(37, 99, 235, 0.45)",
+  "--login-emphasis": "#1D4ED8",
+  "--login-wordmark": "#1E3A8A",
+  "--login-panel-top": "#EFF6FF",
+  "--login-panel-bottom": "#DBEAFE",
+  "--login-page": "#F8FAFC",
   "--login-card": "#FFFFFF",
-  "--login-ink": "#1A1226",
-  "--login-muted": "#6E6480",
-  "--login-faint": "#A29BB0",
-  "--login-line": "#DCD5E4",
+  "--login-ink": "#0F172A",
+  "--login-muted": "#52637D",
+  "--login-faint": "#7C8CA3",
+  "--login-line": "#D6DFEC",
   /** Multiplied over the illustration to pull it onto this hue ramp. */
-  "--login-illustration-wash": "rgba(109, 40, 217, 0.30)",
+  "--login-illustration-wash": "rgba(29, 78, 216, 0.30)",
   /** Lifted over the artwork so the card stays the focus rather than the room. */
-  "--login-illustration-scrim": "rgba(250, 248, 252, 0.26)",
+  "--login-illustration-scrim": "rgba(248, 250, 252, 0.26)",
   "--login-card-shadow":
-    "0 1px 2px rgba(26, 18, 38, 0.05), 0 28px 64px -30px rgba(76, 29, 149, 0.30)",
-  "--login-fab-surface": "#EDE7F2",
-  "--login-fab-edge": "#F4F0F7",
-  "--login-fab-shadow": "0 10px 30px -12px rgba(76, 29, 149, 0.40)",
-  "--login-note-surface": "#F6F2F9",
+    "0 1px 2px rgba(15, 23, 42, 0.05), 0 28px 64px -30px rgba(30, 58, 138, 0.30)",
+  "--login-fab-surface": "#E0E9F7",
+  "--login-fab-edge": "#D8E2F2",
+  "--login-fab-shadow": "0 10px 30px -12px rgba(30, 58, 138, 0.40)",
+  "--login-note-surface": "#EFF4FB",
 } as const;
 
 function BrandPanel({ compact = false }: { compact?: boolean }) {
@@ -180,7 +188,7 @@ function BrandPanel({ compact = false }: { compact?: boolean }) {
  * and to anyone who can see it.
  *
  * Two overlays tie a stock illustration to this palette. The wash multiplies a
- * violet over the artwork, which keeps every line and shadow in it while
+ * blue over the artwork, which keeps every line and shadow in it while
  * pulling the colour toward the panel; the fade dissolves the left edge into
  * the page, because a photograph that stops on a straight vertical line reads
  * as a pasted rectangle rather than as a field the card is sitting in.
@@ -243,8 +251,8 @@ function LoginForm() {
   // person who sits down at it, so remembering the address was a convenience
   // that cost more than it was worth. The password is never written anywhere
   // regardless of this setting.
-const [remember, setRemember] = useState(false);
-const [resetNote, setResetNote] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [resetNote, setResetNote] = useState(false);
   // The refusal screen's one button, disabled while it runs so a second press
   // cannot start a second sign-out behind the first.
   const [signingOut, setSigningOut] = useState(false);
