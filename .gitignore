@@ -143,3 +143,17 @@ database/schema-apply.sql
 .webdev/
 .project-config.json
 .vercel
+
+# The Figma Make scaffold the post-sign-in screen was designed in. Kept on disk
+# as the design of record, and deliberately not committed: it is a complete
+# second Vite + React + Tailwind project, with its own package.json and
+# pnpm-lock.yaml, and a nested lockfile inside a pnpm repository is a trap for
+# whatever tooling walks the tree looking for one. It also carries 2 MB of
+# assets the repository already has elsewhere - the mark is at
+# assets/brand/app-logo.png, and its crest.png is byte-identical to the emblem
+# in assets/logos-img.
+#
+# What the design became is committed: client/src/components/BootLoader.tsx and
+# the `boot-` rules in client/src/index.css. Regenerate this folder from Figma
+# if the design needs revisiting; nothing in the application reads from it.
+assets/Logo_Loader/
