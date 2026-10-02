@@ -29,6 +29,29 @@ import { STATUS_VALUES, STATUS_SHORT, type CaseStatus } from "@shared/statuses";
  * three round trips would show three slightly different moments.
  */
 
+/**
+ * Whether a chart series animates in on mount.
+ *
+ * `false`, everywhere, and it is worth saying why because the default is the
+ * opposite and the effect is a flourish most dashboards keep.
+ *
+ * Recharts animates a series in over roughly 1.5 seconds. This is the first
+ * screen an officer sees after signing in, and it arrives *underneath* the
+ * branded screen - so those 1.5 seconds are spent behind it, still running when
+ * it dissolves. The handover then reveals a dashboard whose bars are still
+ * growing, and that is what made the end of the transition look rough: the screen
+ * changed and the thing behind it did not stop moving.
+ *
+ * There is also nothing to animate into. These are a register the officer reads,
+ * not a reward for arriving, and the branded screen has just spent two and a half
+ * seconds being the motion. Two of the same idea in a row is one too many.
+ *
+ * The cost is real besides: the animation runs on every mount, so every
+ * navigation that lands here pays for it and it delays the moment the figures can
+ * be read.
+ */
+const ANIMATE_ON_MOUNT = false;
+
 // The eleven status colours, muted to match the status plates so a chart
 // segment and a row badge are recognisably the same state.
 const STATUS_CHART_COLOURS: Record<CaseStatus, string> = {
@@ -61,7 +84,8 @@ const PROVINCE_COLOURS = [
  * status and province keys are string unions on the server, and a restated copy
  * would accept provinces that do not exist.
  */
-export type DashboardData = inferRouterOutputs<AppRouter>["caseManagement"]["dashboard"];
+export type DashboardData =
+  inferRouterOutputs<AppRouter>["caseManagement"]["dashboard"];
 
 function Panel({
   title,
@@ -122,8 +146,20 @@ export function DashboardCharts({ data }: { data: DashboardData }) {
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="received" name="Received" fill="#1d4ed8" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="closed" name="Closed" fill="#10b981" radius={[3, 3, 0, 0]} />
+              <Bar
+                dataKey="received"
+                name="Received"
+                fill="#1d4ed8"
+                radius={[3, 3, 0, 0]}
+                isAnimationActive={ANIMATE_ON_MOUNT}
+              />
+              <Bar
+                dataKey="closed"
+                name="Closed"
+                fill="#10b981"
+                radius={[3, 3, 0, 0]}
+                isAnimationActive={ANIMATE_ON_MOUNT}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -148,6 +184,7 @@ export function DashboardCharts({ data }: { data: DashboardData }) {
                   innerRadius="55%"
                   outerRadius="85%"
                   paddingAngle={1}
+                  isAnimationActive={ANIMATE_ON_MOUNT}
                 >
                   {statusData.map(row => (
                     <Cell
@@ -187,7 +224,12 @@ export function DashboardCharts({ data }: { data: DashboardData }) {
                 margin={{ left: 8 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" stroke="#64748b" fontSize={12} allowDecimals={false} />
+                <XAxis
+                  type="number"
+                  stroke="#64748b"
+                  fontSize={12}
+                  allowDecimals={false}
+                />
                 <YAxis
                   type="category"
                   dataKey="province"
@@ -202,7 +244,12 @@ export function DashboardCharts({ data }: { data: DashboardData }) {
                     fontSize: 12,
                   }}
                 />
-                <Bar dataKey="count" name="Matters" radius={[0, 3, 3, 0]}>
+                <Bar
+                  dataKey="count"
+                  name="Matters"
+                  radius={[0, 3, 3, 0]}
+                  isAnimationActive={ANIMATE_ON_MOUNT}
+                >
                   {provinceData.map((row, index) => (
                     <Cell
                       key={row.province}
@@ -236,7 +283,11 @@ export function ClosureTrend({
           <XAxis dataKey="label" stroke="#64748b" fontSize={12} />
           <YAxis stroke="#64748b" fontSize={12} allowDecimals={false} />
           <Tooltip
-            contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12 }}
+            contentStyle={{
+              borderRadius: 8,
+              border: "1px solid #e2e8f0",
+              fontSize: 12,
+            }}
           />
           <Line
             type="monotone"
@@ -245,6 +296,7 @@ export function ClosureTrend({
             stroke="#1d4ed8"
             strokeWidth={2}
             dot={{ r: 2 }}
+            isAnimationActive={ANIMATE_ON_MOUNT}
           />
           <Line
             type="monotone"
@@ -253,6 +305,7 @@ export function ClosureTrend({
             stroke="#10b981"
             strokeWidth={2}
             dot={{ r: 2 }}
+            isAnimationActive={ANIMATE_ON_MOUNT}
           />
         </LineChart>
       </ResponsiveContainer>

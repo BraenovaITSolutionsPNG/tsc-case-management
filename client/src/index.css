@@ -716,6 +716,29 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity 500ms ease;
+  /* Promoted to its own layer so the fade is composited rather than repainted.
+     The subtree underneath is entirely static - every animation on it has
+     already finished and holds - so the only thing that should change per frame
+     is one number. */
+  will-change: opacity;
+}
+
+/* The most expensive thing on this screen, dropped for the duration of the fade.
+
+   `.boot-shell::before` carries a viewport-sized `backdrop-filter`. A backdrop
+   filter has to re-sample whatever is behind it, and the thing behind it is the
+   platform becoming visible - so on every frame of the fade the browser re-blurs
+   a full screen. That is the cost of the effect paid 30 times over for something
+   nobody can see: by the time the screen is a quarter transparent the difference
+   between a blurred and an unblurred backdrop is imperceptible.
+
+   Removing it is a small visible change at the very start of the fade, which is
+   why the mark, the ring and the type are all left exactly as they are - those
+   are what the officer is looking at. */
+.boot-shell-fading::before,
+.boot-shell-fading::after {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* The platform rising underneath. Kept in step with the same 500ms for the same

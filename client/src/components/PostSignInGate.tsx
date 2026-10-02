@@ -118,11 +118,20 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (phase !== "fading") return;
-    // Unmounts the screen once it has finished dissolving. BOOT_FADE_MS is the
-    // same number the CSS transition runs for, so the screen is taken away at
-    // the moment it has become invisible rather than while it is still going.
-    const done = setTimeout(() => setPhase("off"), BOOT_FADE_MS);
-    return () => clearTimeout(done);
+    // A backstop, not the mechanism. The screen normally unmounts itself when
+    // the transition genuinely ends — see `onFadeEnd` — because a timer set to
+    // the same number as the CSS transition drifts by a frame under load, and
+    // removing the element with opacity still a hair above zero puts a snap at
+    // exactly the moment the eye is following the fade. That snap is what made
+    // the end of the handover read as rough.
+    //
+    // This exists because a transition event does not fire in every
+    // circumstance — a browser that has dropped the transition, or a tab that was
+    // hidden and never painted. If the event never comes, the screen still comes
+    // down. Generously longer than the fade, so it can only ever be the thing
+    // that saves the officer rather than the thing that ruins the handover.
+    const backstop = setTimeout(() => setPhase("off"), BOOT_FADE_MS * 4);
+    return () => clearTimeout(backstop);
   }, [phase]);
 
   useEffect(() => {
@@ -148,6 +157,7 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
           fading={phase === "fading"}
           minimumVisibleMs={BOOT_MINIMUM_MS}
           onMinimumElapsed={() => setFloorPassed(true)}
+          onFadeEnd={() => setPhase("off")}
         />
       )}
     </>

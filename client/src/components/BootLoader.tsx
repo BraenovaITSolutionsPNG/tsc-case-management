@@ -33,21 +33,36 @@ import { useEffect } from "react";
  * served by an animation, however well made it is.
  */
 export function BootLoader({
-  minimumVisibleMs = 2000,
+  minimumVisibleMs = 2600,
   onMinimumElapsed,
+  onFadeEnd,
   fading = false,
 }: {
   minimumVisibleMs?: number;
   onMinimumElapsed?: () => void;
   /**
+   * Called when the dissolve has actually finished, rather than when it is
+   * predicted to have.
+   *
+   * This was a timer set to the same number the CSS transition runs for, and a
+   * timer is the wrong instrument for it: the two drift by a frame under load,
+   * and the element was removed with opacity still a hair above zero. That is a
+   * snap at precisely the moment the eye is following the fade, which is why the
+   * end of the handover read as rough however smooth the rest of it was.
+   *
+   * A transition event is the real end of the transition, so the caller is told
+   * when it is over rather than when it ought to be.
+   */
+  onFadeEnd?: () => void;
+  /**
    * Fade the screen out rather than holding it opaque.
    *
    * Set once the platform is ready and rendered underneath, so the two overlap
    * for the length of the fade and neither arrives as a cut. The element stays
-   * mounted throughout — the caller unmounts it on a timer matching
-   * `BOOT_FADE_MS` — and stops taking pointer events while it is on its way out,
-   * so a click landing in those last few hundred milliseconds reaches the
-   * platform instead of being swallowed by a screen that is leaving.
+   * mounted throughout — the caller unmounts it when told the fade has ended —
+   * and stops taking pointer events while it is on its way out, so a click
+   * landing in those last few hundred milliseconds reaches the platform instead
+   * of being swallowed by a screen that is leaving.
    */
   fading?: boolean;
 }) {
@@ -69,6 +84,15 @@ export function BootLoader({
       // read now, and a status region mid-fade would keep announcing itself over
       // the officer's first screen of the platform.
       aria-hidden={fading || undefined}
+      // Only the opacity property animates on this element, so the event is
+      // unambiguous — no other transition can be mistaken for the fade ending.
+      onTransitionEnd={
+        fading && onFadeEnd
+          ? event => {
+              if (event.target === event.currentTarget) onFadeEnd();
+            }
+          : undefined
+      }
     >
       <div className="boot-ambient boot-ambient-one" />
       <div className="boot-ambient boot-ambient-two" />
