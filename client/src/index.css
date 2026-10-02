@@ -121,8 +121,8 @@
     @apply bg-background text-foreground;
     /* The variable comes from `next/font` in the root layout. The literal name
        stays as a fallback for anything rendered outside that tree. */
-    font-family: var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui,
-      sans-serif;
+    font-family:
+      var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui, sans-serif;
     background-image: radial-gradient(
       circle at 12% 0%,
       rgba(13, 148, 136, 0.06),
@@ -277,5 +277,415 @@
   .animate-loader-cascade {
     opacity: 0.6;
     transform: scaleX(0.8);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The post-sign-in screen.
+
+   Ported from assets/Logo_Loader, the Figma design this was built from, and
+   kept as its own stylesheet rather than folded into the theme because it is a
+   single fixed screen with one palette: the blue field, the ring colours taken
+   from the mark, and nothing that responds to the application's own theme
+   tokens. It is a moment of theatre between two screens, not a part of the app.
+
+   Every class is `boot-` prefixed so none of it can reach a screen that happens
+   to want a `h1` or a `card`. The unscoped `h1` in the design is the reason this
+   could not simply be pasted in — it would have restyled the heading on every
+   page in the application.
+--------------------------------------------------------------------------- */
+
+.boot-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 32px 20px;
+  isolation: isolate;
+  color: #f8f1df;
+  background:
+    radial-gradient(circle at 50% 38%, rgb(83 210 244 / 50%), transparent 34%),
+    radial-gradient(circle at 8% 12%, rgb(129 220 255 / 28%), transparent 30%),
+    linear-gradient(145deg, #0c79b8 0%, #07558f 52%, #063c76 100%);
+}
+
+.boot-shell::before,
+.boot-shell::after {
+  position: absolute;
+  inset: 24px;
+  z-index: -1;
+  border: 1px solid rgb(199 239 255 / 20%);
+  content: "";
+  pointer-events: none;
+}
+
+.boot-shell::after {
+  inset: 31px;
+  border-color: rgb(255 255 255 / 2.5%);
+}
+
+.boot-shell::before {
+  inset: 0;
+  border: 0;
+  background:
+    linear-gradient(120deg, rgb(255 255 255 / 16%), transparent 32%),
+    linear-gradient(300deg, rgb(143 220 255 / 12%), transparent 42%),
+    rgb(209 242 255 / 3.5%);
+  backdrop-filter: blur(10px) saturate(135%);
+  -webkit-backdrop-filter: blur(10px) saturate(135%);
+}
+
+.boot-ambient {
+  position: absolute;
+  z-index: -2;
+  width: min(70vw, 820px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.13;
+  animation: boot-drift 9s ease-in-out infinite alternate;
+}
+
+.boot-ambient-one {
+  top: -35%;
+  left: -18%;
+  background: #5dd8ff;
+}
+
+.boot-ambient-two {
+  right: -22%;
+  bottom: -42%;
+  background: #4d8dff;
+  animation-delay: -4s;
+}
+
+.boot-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  opacity: 0.045;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+
+.boot-card {
+  position: relative;
+  display: flex;
+  width: min(100%, 560px);
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.boot-monogram-pulse {
+  position: absolute;
+  inset: 5%;
+  z-index: 3;
+  border: 1px solid rgb(116 220 255 / 42%);
+  border-radius: 50%;
+  animation: boot-pulse-frame 2.7s ease-out infinite;
+}
+
+.boot-monogram-stage {
+  position: relative;
+  display: grid;
+  width: min(72vw, 310px);
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(190 235 255 / 42%);
+  border-radius: 50%;
+  background: rgb(236 249 255 / 92%);
+  box-shadow:
+    0 35px 90px rgb(0 0 0 / 46%),
+    inset 0 0 0 7px rgb(255 255 255 / 28%),
+    0 0 65px rgb(79 206 255 / 24%);
+  animation:
+    boot-crest-enter 1.3s 0.18s cubic-bezier(0.16, 1, 0.3, 1) both,
+    boot-float 3.8s 1.5s ease-in-out infinite;
+}
+
+/* The conic sweep behind the mark. The four colours are the mark's own — the
+   bird's orange and red, the folder's two blues — so the ring reads as
+   something the mark shed rather than as decoration added to it. */
+.boot-monogram-stage::before {
+  position: absolute;
+  inset: -16%;
+  z-index: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgb(0 174 239 / 72%) 54deg,
+    rgb(20 76 181 / 50%) 112deg,
+    transparent 158deg,
+    rgb(255 190 18 / 64%) 222deg,
+    rgb(232 36 53 / 44%) 274deg,
+    transparent 330deg
+  );
+  filter: blur(16px);
+  content: "";
+  animation: boot-paint-spin 2.9s linear infinite;
+}
+
+.boot-monogram-stage::after {
+  position: absolute;
+  inset: 2%;
+  z-index: 2;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 18% 32%, rgb(255 198 30 / 30%), transparent 18%),
+    radial-gradient(circle at 82% 66%, rgb(0 151 222 / 28%), transparent 20%);
+  mix-blend-mode: color;
+  content: "";
+  pointer-events: none;
+  animation: boot-paint-wash 3.4s ease-in-out infinite;
+}
+
+.boot-monogram {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  animation: boot-paint-form 3.4s cubic-bezier(0.65, 0, 0.2, 1) infinite;
+}
+
+.boot-copy {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 480px);
+  margin-top: 15px;
+  padding: 28px 40px;
+  animation: boot-copy-enter 1s 0.5s ease both;
+}
+
+.boot-eyebrow {
+  margin: 0 0 10px;
+  color: #dfa050;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.boot-title {
+  margin: 0;
+  color: #f5f0e6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(24px, 5vw, 34px);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+
+.boot-progress {
+  position: relative;
+  width: min(82vw, 340px);
+  height: 2px;
+  margin-top: 35px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 10%);
+  animation: boot-copy-enter 1s 0.72s ease both;
+}
+
+.boot-progress-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background: linear-gradient(90deg, #c7541b, #f0a642 54%, #327a8f);
+  animation: boot-load 3.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.boot-progress-shimmer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 70px;
+  background: linear-gradient(90deg, transparent, #fff6dc, transparent);
+  filter: blur(1px);
+  animation: boot-shimmer 2s ease-in-out infinite;
+}
+
+.boot-caption {
+  display: flex;
+  align-items: center;
+  margin-top: 13px;
+  color: rgb(239 237 228 / 42%);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.boot-dots {
+  display: flex;
+  gap: 4px;
+  margin-left: 7px;
+}
+
+.boot-dots i {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: #e9a04a;
+  animation: boot-dot 1.3s ease-in-out infinite;
+}
+
+.boot-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.boot-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes boot-crest-enter {
+  from {
+    transform: scale(0.82);
+    opacity: 0;
+    filter: blur(8px) drop-shadow(0 22px 24px rgb(0 0 0 / 0%));
+  }
+}
+
+@keyframes boot-copy-enter {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+}
+
+@keyframes boot-pulse-frame {
+  70%,
+  100% {
+    transform: scale(1.42);
+    opacity: 0;
+  }
+}
+
+@keyframes boot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes boot-paint-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes boot-paint-form {
+  0% {
+    transform: rotate(-25deg) scale(0.68);
+    opacity: 0;
+    filter: blur(18px) saturate(1.8);
+    clip-path: circle(4% at 50% 50%);
+  }
+  22% {
+    opacity: 0.58;
+  }
+  72% {
+    transform: rotate(335deg) scale(0.94);
+    opacity: 0.9;
+    filter: blur(3px) saturate(1.35);
+    clip-path: circle(43% at 50% 50%);
+  }
+  88%,
+  100% {
+    transform: rotate(360deg) scale(1.04);
+    opacity: 1;
+    filter: blur(0) saturate(1);
+    clip-path: circle(72% at 50% 50%);
+  }
+}
+
+@keyframes boot-paint-wash {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(0.9);
+    opacity: 0.25;
+  }
+  50% {
+    transform: rotate(-150deg) scale(1.06);
+    opacity: 0.8;
+  }
+}
+
+@keyframes boot-load {
+  0% {
+    transform: scaleX(0);
+  }
+  58% {
+    transform: scaleX(0.72);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes boot-shimmer {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 110%;
+  }
+}
+
+@keyframes boot-dot {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.25;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@keyframes boot-drift {
+  to {
+    transform: translate3d(7%, 5%, 0) scale(1.12);
+  }
+}
+
+/* A short viewport — a laptop in a half-screen window, or a phone held with a
+   keyboard open — would otherwise push the bar off the bottom. */
+@media (max-height: 700px) {
+  .boot-monogram-stage {
+    width: min(68vw, 260px);
+  }
+
+  .boot-copy {
+    margin-top: 2px;
+    padding: 20px 40px 10px;
+  }
+
+  .boot-progress {
+    margin-top: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-shell *,
+  .boot-shell::before,
+  .boot-shell::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  /* Left part-filled rather than empty: the bar still says the platform is
+     coming, which is true, without pretending to measure it. */
+  .boot-progress-fill {
+    transform: scaleX(0.78);
   }
 }

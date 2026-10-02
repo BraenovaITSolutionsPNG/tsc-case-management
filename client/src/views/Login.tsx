@@ -22,6 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import officeIllustration from "@assets/login-bg-img/added-img.webp";
+import { markPostSignIn } from "@/lib/postSignIn";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -313,6 +314,12 @@ function LoginForm() {
       // pick it up on the first paint instead of routing through a stale
       // client-side cache. `next` is same-origin relative or it would have been
       // dropped by the sign-in screen's own check before reaching here.
+      //
+      // The note left first, because the navigation ends this document and the
+      // layout on the other side is the only thing that can read it. Without
+      // this the platform opens and nothing marks that the officer has just
+      // signed in rather than arrived some other way.
+      markPostSignIn();
       window.location.assign(next ?? "/");
     } catch (error) {
       // Logged before it is replaced by a generic sentence, because this branch

@@ -21,6 +21,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
+import { BootLoader } from "./BootLoader";
+import {
+  BOOT_CEILING_MS,
+  BOOT_MINIMUM_MS,
+  consumePostSignIn,
+} from "@/lib/postSignIn";
 import {
   ClipboardList,
   FilePlus2,
@@ -144,6 +150,55 @@ export default function DashboardLayout({
       pathname ? `/login?next=${encodeURIComponent(pathname)}` : "/login"
     );
   }, [loading, user, pathname, router]);
+
+  // The screen an officer sees once, between signing in and being in.
+  //
+  // Three conditions have to agree before it goes away, and each is here
+  // because the failure it prevents is a screen that never ends:
+  //
+  //   - the note the sign-in screen left, consumed on the way in, so this is a
+  //     sign-in and not merely a page load;
+  //   - the session resolved, so there is an identity to draw the platform for;
+  //   - the screen has been up long enough to read as a moment rather than a
+  //     flicker, because a mark that flashes past in 200ms looks like a bug.
+  //
+  // And a fourth that overrides all of them: BOOT_CEILING_MS. This covers the
+  // viewport, so a session request that never settles, a query stuck retrying, a
+  // network that went away mid-boot — every one of those would otherwise leave
+  // an officer staring at a logo. A skeleton or a half-drawn screen is a lesser
+  // problem than a permanent one, and they can always reload.
+  const [afterSignIn, setAfterSignIn] = useState(false);
+  const [bootElapsed, setBootElapsed] = useState(true);
+
+  useEffect(() => {
+    if (consumePostSignIn()) {
+      setAfterSignIn(true);
+      // Not yet elapsed: the floor starts when the screen appears, not when the
+      // layout happened to mount.
+      setBootElapsed(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!afterSignIn) return;
+    const ceiling = setTimeout(() => setAfterSignIn(false), BOOT_CEILING_MS);
+    return () => clearTimeout(ceiling);
+  }, [afterSignIn]);
+
+  useEffect(() => {
+    if (!afterSignIn) return;
+    if (loading || !bootElapsed) return;
+    setAfterSignIn(false);
+  }, [afterSignIn, loading, bootElapsed]);
+
+  if (afterSignIn) {
+    return (
+      <BootLoader
+        minimumVisibleMs={BOOT_MINIMUM_MS}
+        onMinimumElapsed={() => setBootElapsed(true)}
+      />
+    );
+  }
 
   if (loading) {
     return <DashboardLayoutSkeleton />;
