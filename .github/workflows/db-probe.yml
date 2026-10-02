@@ -1,0 +1,132 @@
+# Temporary diagnostic: report what the database connection looks like from a
+# runner that has IPv4 egress, without printing any credential.
+#
+# Why this exists: `db.<ref>.supabase.co` publishes only an AAAA record, so the
+# Vercel deployment cannot resolve it (`getaddrinfo ENOTFOUND`). The pooler host
+# is IPv4 and is the only usable option, but it needs the region, which is not
+# recorded anywhere in the repository. The `DATABASE_URL` secret already holds a
+# pooler string, so the region can be read out of it here.
+#
+# Nothing secret is printed. The password is never echoed: only the hostname,
+# port and username are, and the certificate chain is public by nature.
+name: db probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Report the connection target
+        run: |
+          node -e '
+          const u = new URL(process.env.DATABASE_URL);
+          console.log("PROBE host=" + u.hostname);
+          console.log("PROBE port=" + (u.port || "5432"));
+          console.log("PROBE user=" + u.username);
+          console.log("PROBE database=" + u.pathname.replace(/^\//, ""));
+          console.log("PROBE password=" + (u.password ? "present" : "ABSENT"));
+          '
+
+      # Verification is deliberately off *for this probe only*, so the failure
+      # mode can be observed rather than guessed at. Nothing is written to the
+      # database here, and the real migration keeps verification on.
+      - name: Report the TLS chain and whether the connection authenticates
+        run: |
+          node -e '
+          const tls = require("node:tls");
+          const u = new URL(process.env.DATABASE_URL);
+          const socket = tls.connect(
+            {
+              host: u.hostname,
+              port: Number(u.port || 5432),
+              servername: u.hostname,
+              rejectUnauthorized: false,
+            },
+            () => {
+              const cert = socket.getPeerCertificate(true);
+              console.log("PROBE tls=" + JSON.stringify({
+                authorized: socket.authorized,
+                authorizationError: socket.authorizationError,
+                subject: cert.subject,
+                issuer: cert.issuer,
+                valid_from: cert.valid_from,
+                valid_to: cert.valid_to,
+              }));
+              const chain = cert.issuerCertificate || cert.issuerCertificate === undefined ? [] : [];
+              let c = cert;
+              let depth = 0;
+              while (c && depth < 6) {
+                console.log("PROBE chain[" + depth + "] subject=" + JSON.stringify(c.subject));
+                console.log("PROBE chain[" + depth + "] issuer=" + JSON.stringify(c.issuer));
+                if (c.raw) {
+                  require("node:fs").appendFileSync("/tmp/chain.pem",
+                    "-----BEGIN CERTIFICATE-----\n" +
+                    c.raw.toString("base64").match(/.{1,64}/g).join("\n") +
+                    "\n-----END CERTIFICATE-----\n");
+                }
+                if (c.issuerCertificate === c) break;
+                c = c.issuerCertificate;
+                depth++;
+              }
+              socket.end();
+            }
+          );
+          socket.on("error", e => { console.log("PROBE tls_error=" + e.message); process.exit(0); });
+          '
+
+      - name: Try an authenticated query
+        run: |
+          node -e '
+          const fs = require("node:fs");
+          const { Client } = require("pg");
+          const u = new URL(process.env.DATABASE_URL);
+          const chain = fs.existsSync("/tmp/chain.pem") ? fs.readFileSync("/tmp/chain.pem", "utf8") : undefined;
+          (async () => {
+            for (const [label, ssl] of [["pooled-ca", { ca: chain, rejectUnauthorized: true }], ["pooled-noverify", { rejectUnauthorized: false }]]) {
+              const c = new Client({
+                host: u.hostname, port: Number(u.port || 5432),
+                user: decodeURIComponent(u.username), password: decodeURIComponent(u.password),
+                database: u.pathname.replace(/^\//, ""), ssl, connectionTimeoutMillis: 15000,
+              });
+              try {
+                await c.connect();
+                const v = await c.query("select version() as v, current_user as u");
+                console.log("PROBE query " + label + " OK version=" + v.rows[0].v.split(" ").slice(0,2).join(" "));
+                const t = await c.query("select table_name from information_schema.tables where table_schema = $1 order by table_name", ["public"]);
+                console.log("PROBE public tables (" + t.rowCount + "): " + t.rows.map(r => r.table_name).join(", "));
+                await c.end();
+                process.exit(0);
+              } catch (e) {
+                console.log("PROBE query " + label + " FAILED " + e.message.slice(0, 200));
+                try { await c.end(); } catch {}
+              }
+            }
+            process.exit(1);
+          })();
+          '
+
+      - name: Save the chain as an artifact
+        if: always()
+        run: |
+          mkdir -p probe-out
+          cp /tmp/chain.pem probe-out/chain.pem 2>/dev/null || true
+          {
+            echo "host=${{ secrets.DATABASE_URL != '' && 'set' || 'unset' }}"
+          } > probe-out/README.txt 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: db-probe-chain
+          path: probe-out/
