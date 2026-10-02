@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   const { trpc: trpcServer, HydrateClient } = await getServerTrpc();
 
-  await requireSession(trpcServer, "/cases");
+  await requireSession(trpcServer);
 
   // The first page, prefetched with exactly the input the screen will ask for, so
   // the dehydrated entry is the one it reads rather than a near miss it has to

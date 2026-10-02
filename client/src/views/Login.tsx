@@ -22,12 +22,12 @@ import {
   Loader2,
 } from "lucide-react";
 import officeIllustration from "@assets/login-bg-img/added-img.webp";
+import { LANDING_PATH } from "@shared/landing";
 import { markPostSignIn } from "@/lib/postSignIn";
 import Image from "next/image";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useRouter } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * The sign-in screen.
@@ -219,7 +219,6 @@ function Illustration() {
 
 function LoginForm() {
   const router = useRouter();
-  const params = useSearchParams();
   const { isAuthenticated, loading, logout } = useAuth();
   // Null unless the server refused a session the browser holds: an identity
   // with no register row, or an account that has been deactivated. Null for an
@@ -229,14 +228,13 @@ function LoginForm() {
   const refusal = trpc.auth.refusal.useQuery(undefined, {
     enabled: !isAuthenticated && !loading,
   }).data;
-  const next = params.get("next") ?? undefined;
 
-  // An already-signed-in officer arriving here is sent on. This is a client
-  // redirect rather than a server one because `/login` is a client component
-  // and the session lives in an httpOnly cookie this code cannot read.
+  // An already-signed-in officer arriving here is sent on, to the overview. This
+  // is a client redirect rather than a server one because `/login` is a client
+  // component and the session lives in an httpOnly cookie this code cannot read.
   useEffect(() => {
-    if (isAuthenticated) router.replace(next ?? "/");
-  }, [isAuthenticated, next, router]);
+    if (isAuthenticated) router.replace(LANDING_PATH);
+  }, [isAuthenticated, router]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -330,7 +328,7 @@ function LoginForm() {
       // hard load bought it at the cost of a full teardown, and with it the
       // branded screen, which is what this whole mechanism is for.
       markPostSignIn();
-      router.push(next ?? "/");
+      router.push(LANDING_PATH);
     } catch (error) {
       // Logged before it is replaced by a generic sentence, because this branch
       // fires on anything thrown — including exceptions raised *after* Supabase
@@ -727,12 +725,16 @@ function LoginForm() {
   );
 }
 
+/**
+ * The sign-in screen.
+ *
+ * No Suspense boundary and no reading half split off, which is what this used to
+ * need: the screen read a `next` parameter out of the query string, and
+ * `useSearchParams` suspends during prerender, so the half that read it had to be
+ * behind a boundary to keep the page static-buildable. Every sign-in lands on the
+ * overview now — see `LANDING_PATH` — so there is nothing in the query string to
+ * read and the whole screen prerenders as one piece.
+ */
 export default function Login() {
-  // `useSearchParams` suspends during prerender, so the reading half is split
-  // into a Suspense boundary to keep the page static-buildable.
-  return (
-    <Suspense fallback={<PageLoader label="Loading sign in" />}>
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginForm />;
 }

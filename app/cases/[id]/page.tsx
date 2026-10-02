@@ -22,9 +22,8 @@ export default async function Page({
 }) {
   const { id: rawId } = await params;
   const { trpc: trpcServer, HydrateClient } = await getServerTrpc();
-  const path = `/cases/${rawId}`;
 
-  await requireSession(trpcServer, path);
+  await requireSession(trpcServer);
 
   // The same validity test the screen applies before it will fire its own query,
   // so the two never disagree about whether this id is worth a request. A

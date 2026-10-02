@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const { trpc: trpcServer, HydrateClient } = await getServerTrpc();
-  const user = await requireSession(trpcServer, "/reports");
+  const user = await requireSession(trpcServer);
 
   // Only the weekly brief is prefetched, because only the weekly brief is on
   // screen: the tab strip is a Radix `Tabs`, which unmounts the panels it is not

@@ -123,7 +123,6 @@ export default function DashboardLayout({
   });
   const { loading, user } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     try {
@@ -141,10 +140,11 @@ export default function DashboardLayout({
   // page, at /login, is the only place credentials are entered.
   useEffect(() => {
     if (loading || user) return;
-    router.replace(
-      pathname ? `/login?next=${encodeURIComponent(pathname)}` : "/login"
-    );
-  }, [loading, user, pathname, router]);
+    // Plain `/login`, deliberately: the officer lands on the overview when they
+    // sign back in, rather than on whatever they were looking at when their
+    // session lapsed. See `LANDING_PATH`.
+    router.replace("/login");
+  }, [loading, user, router]);
 
   if (loading) {
     return <DashboardLayoutSkeleton />;

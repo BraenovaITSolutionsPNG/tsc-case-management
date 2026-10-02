@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function Page() {
   const { trpc: trpcServer, HydrateClient } = await getServerTrpc();
 
-  await requireSession(trpcServer, "/cases/new");
+  await requireSession(trpcServer);
 
   return (
     <HydrateClient>

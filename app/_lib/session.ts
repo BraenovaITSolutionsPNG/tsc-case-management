@@ -34,12 +34,18 @@ export type Session = NonNullable<
  * once and shares them between the guard and its prefetches — two callers over
  * one cache would work, but a segment should not have to know that.
  *
- * `next` is the path being asked for, so the officer lands back on the matter
- * they were opening once they have signed in. It is carried through the query
- * string exactly as `redirectToLoginIfUnauthorized` in `app/providers.tsx` does
- * it, which keeps the two guards — the one that runs during the server render
- * and the one that runs when a session expires mid-session — sending people to
- * the same place in the same shape.
+ * A signed-out officer is sent to the sign-in page with nothing said about where
+ * they were, and lands on the overview afterwards. That is a decision, and it is
+ * the opposite of what this file used to do: it carried the path being asked for
+ * through the query string so an officer interrupted mid-matter came back to that
+ * matter.
+ *
+ * Every sign-in now lands on the overview, always. A matter is reached from the
+ * register rather than restored from a URL, which is one fewer thing to reason
+ * about after an expiry — and an expiry is exactly when a stale `next` is most
+ * likely to be wrong, pointing at a matter that has since been closed or one the
+ * officer has since lost the capability to open. The overview is the one page
+ * every role can reach.
  *
  * The two calls that follow are deliberate. The direct call is the guard: it is
  * `ctx.user`, resolved once by `createContext`, so it cannot fail and costs no
@@ -48,14 +54,11 @@ export type Session = NonNullable<
  * screens through `trpc.auth.me.useQuery()` — every one of them would otherwise
  * refetch it on mount even though the server was just handed it.
  */
-export async function requireSession(
-  trpcServer: ServerTrpc,
-  next?: string
-): Promise<Session> {
+export async function requireSession(trpcServer: ServerTrpc): Promise<Session> {
   const user = await trpcServer.auth.me();
 
   if (!user) {
-    redirect(next ? `/login?next=${encodeURIComponent(next)}` : "/login");
+    redirect("/login");
   }
 
   await trpcServer.auth.me.prefetch();

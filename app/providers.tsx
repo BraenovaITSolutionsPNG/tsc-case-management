@@ -40,16 +40,18 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   // Already on the sign-in page: reloading it would loop, and a 401 there is
   // simply the expected answer to an auth probe.
-  const { pathname, search } = window.location;
-  if (pathname === "/login") return;
+  if (window.location.pathname === "/login") return;
 
   // Runs inside a react-query cache subscriber, so a throw here would escape
   // into the cache rather than surface to the user.
+  //
+  // No `next`. An expired session used to carry the path it expired on, so the
+  // officer would be returned to it — which by then may be a closed matter, a
+  // reassigned one, or one they have lost the capability to open. `LANDING_PATH`
+  // is the overview, which every role can reach and which always answers the
+  // same question.
   try {
-    const target = `${pathname}${search}`;
-    window.location.assign(
-      target ? `/login?next=${encodeURIComponent(target)}` : "/login"
-    );
+    window.location.assign("/login");
   } catch (error) {
     console.error("[Auth] Redirect to sign-in failed", error);
   }

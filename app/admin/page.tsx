@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const { trpc: trpcServer, HydrateClient } = await getServerTrpc();
-  const user = await requireSession(trpcServer, "/admin");
+  const user = await requireSession(trpcServer);
 
   // Prefetch the first tab this role can actually open, which is the one the
   // screen will render by default. The tab list is built from the same
