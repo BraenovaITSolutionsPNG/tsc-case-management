@@ -127,21 +127,3 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
     </>
   );
 }
-
-/**
- * Whether a sign-in is waiting, for the App Router's own loading fallback.
- *
- * `app/loading.tsx` cannot be a server component and know this — the note lives
- * in the browser — so it peeks from a small client wrapper. Peeking and not
- * consuming is deliberate: this runs first, the gate consumes after.
- */
-export function usePostSignInPending(): boolean {
-  const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    if (peekPostSignIn()) setPending(true);
-    return onPostSignIn(() => setPending(true));
-  }, []);
-
-  return pending;
-}
