@@ -15,6 +15,10 @@
 name: db probe
 on:
   workflow_dispatch:
+    inputs:
+      local_password_fp:
+        description: "SHA-256 prefix of the .env DATABASE_URL password, computed locally"
+        required: true
 permissions:
   contents: read
 jobs:
@@ -22,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      LOCAL_PASS_FP: ${{ inputs.local_password_fp }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -35,17 +40,11 @@ jobs:
         run: |
           node -e '
           const crypto = require("node:crypto");
-          const fs = require("node:fs");
           const secret = decodeURIComponent(new URL(process.env.DATABASE_URL).password);
-          const local = (fs.readFileSync(".env", "utf8").split("\n")
-            .find(l => l.startsWith("DATABASE_URL=")) || "")
-            .slice("DATABASE_URL=".length);
-          const localPass = decodeURIComponent(new URL(local).password);
           const fp = s => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
           console.log("PROBE secretPassFp=" + fp(secret) + " len=" + secret.length);
-          console.log("PROBE localPassFp=" + fp(localPass) + " len=" + local.length);
-          console.log("PROBE passwordsMatch=" + (secret === localPass));
-          console.log("PROBE urlFpMatch=" + (secret === localPass ? "n/a" : "check host separately"));
+          console.log("PROBE givenLocalFp=" + process.env.LOCAL_PASS_FP);
+          console.log("PROBE passwordsMatch=" + (fp(secret) === process.env.LOCAL_PASS_FP));
           '
 
       - name: Verify the pooler with the recovered root CA
