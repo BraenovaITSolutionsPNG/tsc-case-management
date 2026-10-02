@@ -11,7 +11,8 @@ import {
   peekPostSignIn,
 } from "@/lib/postSignIn";
 import { useIsFetching } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Where the post-sign-in hand-off has got to.
@@ -51,7 +52,11 @@ type Phase = "off" | "holding" | "fading";
  * settles cannot leave an officer staring at a logo; and the platform's own
  * readiness, so the handover waits for real data rather than for a guess.
  */
+/** The one route the branded screen is ever raised from. */
+const SIGN_IN_ROUTE = "/login";
+
 export function PostSignInGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [phase, setPhase] = useState<Phase>("off");
   const [floorPassed, setFloorPassed] = useState(true);
   const [painted, setPainted] = useState(true);
@@ -88,6 +93,7 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   function startHandover() {
+    beganOnSignIn.current = pathname === SIGN_IN_ROUTE;
     setPhase("holding");
     // The floor starts now, not when the document was created: a slow server
     // round trip must not be spent out of the time the mark is on screen.
@@ -98,7 +104,31 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
   }
 
   // The platform's own readiness: a resolved session and nothing in flight.
+  //
+  // Necessary and not sufficient, which is the whole of the next block. Queries
+  // say nothing about whether the route has arrived.
   const ready = !sessionState.isLoading && inFlight === 0;
+
+  // Whether the handover began on the sign-in screen, recorded at the moment it
+  // starts. A gate that begins on a page the officer was already on - the
+  // platform itself, on a hard load, where nothing navigates - must not sit
+  // waiting for a route change that is never coming.
+  const beganOnSignIn = useRef(false);
+
+  // The route transition has committed.
+  //
+  // This is the check that was missing, and it is why the arrival was abrupt
+  // rather than smooth. `router.push` streams the new page's RSC payload over the
+  // network; until it lands, the committed pathname is still the sign-in screen
+  // and that screen is what is under the branded loader. `inFlight` reports zero
+  // the entire time, because no *query* has started — the payload has not
+  // arrived to start one. So a handover decided on queries alone would dissolve
+  // the loader over the sign-in form, and the dashboard would then appear all at
+  // once. The whole transition played out over the wrong page.
+  //
+  // The committed pathname changing is the signal that the navigation finished,
+  // because that is the moment App Router swaps the tree.
+  const routeArrived = !beganOnSignIn.current || pathname !== SIGN_IN_ROUTE;
 
   // ...and one painted frame, so "nothing in flight" cannot be read in the gap
   // between the server-prefetched cache hydrating and the screen's first query
@@ -112,9 +142,9 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (phase !== "holding") return;
-    if (!floorPassed || !painted || !ready) return;
+    if (!floorPassed || !painted || !ready || !routeArrived) return;
     setPhase("fading");
-  }, [phase, floorPassed, painted, ready]);
+  }, [phase, floorPassed, painted, ready, routeArrived]);
 
   useEffect(() => {
     if (phase !== "fading") return;
