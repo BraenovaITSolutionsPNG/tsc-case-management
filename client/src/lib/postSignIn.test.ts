@@ -166,6 +166,50 @@ describe("postSignIn", () => {
     expect(consumePostSignIn()).toBe(false);
   });
 
+  it("refuses a note left long ago, so a returning officer is not shown it again", () => {
+    // The ordinary case this exists for: an officer signs in, leaves the tab open
+    // to do something else, and comes back to it much later. The note is still in
+    // sessionStorage because nothing consumed it, and without an age limit that
+    // is a branding animation in front of somebody who has been working for an
+    // hour.
+    install(fakeStorage());
+    markPostSignIn();
+    expect(peekPostSignIn()).toBe(true);
+
+    const later = Date.now() + 60_000;
+    const realNow = Date.now;
+    Date.now = () => later;
+    try {
+      expect(peekPostSignIn()).toBe(false);
+      expect(consumePostSignIn()).toBe(false);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("refuses a note it cannot date", () => {
+    // An older build wrote a bare "1" with no timestamp. There is no way to age
+    // it, so it is not believed — showing the screen for a sign-in nobody can
+    // date is the worse of the two failures.
+    install(fakeStorage());
+    window.sessionStorage.setItem("tsc-post-sign-in", "1");
+    expect(peekPostSignIn()).toBe(false);
+    expect(consumePostSignIn()).toBe(false);
+  });
+
+  it("still believes a note written a moment ago", () => {
+    install(fakeStorage());
+    markPostSignIn();
+    const later = Date.now() + 5_000;
+    const realNow = Date.now;
+    Date.now = () => later;
+    try {
+      expect(peekPostSignIn()).toBe(true);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("holds past the end of the mark's animation, then lets it rest", () => {
     // The mark assembles over 2000ms and stops. The floor has to clear that or
     // the handover lands on the frame the animation completes, which reads as an

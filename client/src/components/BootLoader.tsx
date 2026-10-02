@@ -1,6 +1,6 @@
 "use client";
 
-import appLogo from "@assets/brand/app-logo.png";
+import appLogo from "@assets/brand/app-logo.webp";
 import Image from "next/image";
 import { useEffect } from "react";
 

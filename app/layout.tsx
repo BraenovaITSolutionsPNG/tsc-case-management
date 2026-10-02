@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import appLogo from "@assets/brand/app-logo.webp";
 import { DM_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
@@ -28,6 +29,32 @@ export const metadata: Metadata = {
     "Provincial matters administration for the Kenya Teachers Service Commission.",
 };
 
+/**
+ * Fetch the mark before it is needed.
+ *
+ * The post-sign-in screen is drawn only after a credential is accepted, and the
+ * mark is the one thing on it that cannot be drawn late — the ring assembles
+ * itself over two seconds, and an empty circle for that two seconds is not a
+ * loading state, it is a broken image. Without this the 40 KB fetch starts at the
+ * moment the screen appears, on the same connection that is still carrying the
+ * dashboard, so on a slow link the animation runs against nothing.
+ *
+ * So it is asked for here, on every page, where it costs one small request and
+ * arrives long before it is looked at.
+ *
+ * `imageSizes` rather than a srcset, because this build serves the static import
+ * unoptimised - the measured wire weight was 1.23 MB for the PNG this replaced -
+ * so there is only ever one candidate and telling the browser the size it is
+ * painted at is what stops it reserving the wrong box.
+ */
+export const appLogoPreload = {
+  rel: "preload" as const,
+  as: "image" as const,
+  href: appLogo.src,
+  imageSizes: "310px",
+  fetchPriority: "high" as const,
+};
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -45,6 +72,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={dmSans.variable} suppressHydrationWarning>
       <body>
+        <link {...appLogoPreload} />
         <AppErrorBoundary>
           {/* Above the tree so it survives a route that fails to render: the
               officer sees the bar and the error together, rather than a bar

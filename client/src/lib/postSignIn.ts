@@ -1,26 +1,42 @@
 /**
  * The hand-off from the sign-in screen to the platform.
  *
- * A sign-in ends with a full-page navigation, so nothing survives it in memory —
- * the new document starts with no way of knowing that the officer has just
- * signed in, as against having arrived at the platform by other means. The
- * sign-in screen therefore leaves one note in `sessionStorage`, and the layout
- * picks it up once.
+ * The branded screen shows once, between a credential being accepted and the
+ * platform being usable, and never again. That "never again" is the whole
+ * difficulty: a refresh, a click between tabs, a second tab, and a restored tab
+ * all look superficially like arriving at the platform, and three of them are
+ * common. So this note is a single value that is written once and *taken* once,
+ * by the last reader, and anything that could make it survive is refused below.
  *
  * `sessionStorage` and not `localStorage` on purpose. This is a fact about the
  * tab that just signed in, and it should not outlive it: an officer who signs in
  * on one tab, opens a second, and finds a branding animation playing there too
- * has been shown something untrue about that tab. Storage is also per-origin and
- * cleared when the tab closes, so a stale note cannot greet someone days later.
+ * has been shown something untrue about that tab.
  *
- * Read with `consumePostSignIn`, which clears as it reads. That is what makes it
- * a hand-off rather than a setting: a refresh of the destination should still
- * show the screen, because the officer arriving there *is* arriving from a
- * sign-in, but the second navigation afterwards must not.
+ * The sign-in screen navigates without a document load, so the note is not the
+ * only signal — `onPostSignIn` carries the same fact to a gate that is already
+ * mounted. The note covers the case where the platform is entered as a new
+ * document anyway.
  */
 
 /** Storage key. Prefixed so it is not mistaken for one of the app's own. */
 const FLAG = "tsc-post-sign-in";
+
+/**
+ * How old a note may be and still be believed.
+ *
+ * A second reader is a bug, not a feature, so a note this old is discarded rather
+ * than trusted. It exists because `sessionStorage` survives things the app does
+ * not expect: a browser crash and restore, a tab reopened from a session history,
+ * and — the ordinary case — an officer who signs in and then leaves the tab open
+ * while they do something else and come back to it much later. None of those is
+ * "the moment you signed in", and treating them as though it were would put a
+ * branding animation in front of an officer who has been working for an hour.
+ *
+ * Comfortably longer than any plausible sign-in round trip, and shorter than the
+ * gap between signing in and looking at the screen again.
+ */
+const NOTE_MAX_AGE_MS = 30_000;
 
 /**
  * How long the post-sign-in screen holds before the platform is handed over.
@@ -90,7 +106,10 @@ export function markPostSignIn(): void {
   // failing to record the note must not stop the officer getting in — which is
   // why the caller navigates either way and this only says "no note".
   try {
-    window.sessionStorage.setItem(FLAG, "1");
+    // The time is stored alongside the flag rather than a bare "1", because "is
+    // this note still believable" is a question about *when* it was left, and a
+    // flag with no age cannot answer it.
+    window.sessionStorage.setItem(FLAG, String(Date.now()));
   } catch {
     // Storage unavailable. The platform still opens; it just opens without the
     // branded screen.
@@ -136,7 +155,17 @@ export function onPostSignIn(listener: () => void): () => void {
 export function peekPostSignIn(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.sessionStorage.getItem(FLAG) === "1";
+    const raw = window.sessionStorage.getItem(FLAG);
+    if (raw === null) return false;
+
+    const at = Number(raw);
+    // Not a number means a note written by an older build, which stored a bare
+    // "1" and carried no time. There is no way to age it, so it is not believed:
+    // showing the screen for a sign-in nobody can date is the worse of the two
+    // failures.
+    if (!Number.isFinite(at)) return false;
+
+    return Date.now() - at < NOTE_MAX_AGE_MS;
   } catch {
     return false;
   }
@@ -151,7 +180,7 @@ export function peekPostSignIn(): boolean {
 export function consumePostSignIn(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const set = window.sessionStorage.getItem(FLAG) === "1";
+    const set = peekPostSignIn();
     // Cleared whether or not it was set, so a flag written by an older build
     // cannot be picked up twice.
     window.sessionStorage.removeItem(FLAG);
