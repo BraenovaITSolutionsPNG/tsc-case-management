@@ -4,7 +4,7 @@ import { DM_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import { AppErrorBoundary } from "./error-boundary";
-import { NavigationProgress } from "@/components/NavigationProgress";
+import { PlatformPageLoader } from "@/components/PlatformPageLoader";
 import { PostSignInGate } from "@/components/PostSignInGate";
 import "@/index.css";
 
@@ -77,7 +77,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           {/* Above the tree so it survives a route that fails to render: the
               officer sees the bar and the error together, rather than a bar
               that stops because the screen it was heading for never arrived. */}
-          <NavigationProgress />
+          {/*
+           * The platform's own loader, for moving between the tabs and signing
+           * out. It was a thin bar until now, which is easy to miss, and a
+           * skeleton on sign-out, which stood in for a screen the officer had
+           * just asked to leave. It stands down whenever the branded post-sign-in
+           * screen is up, so the two never stack.
+           */}
+          <PlatformPageLoader />
           <Providers>
             {/*
              * Above the router, so the branded screen survives the navigation

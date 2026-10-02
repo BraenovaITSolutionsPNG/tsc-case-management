@@ -9,6 +9,7 @@ import {
   consumePostSignIn,
   onPostSignIn,
   peekPostSignIn,
+  setHandoverActive,
 } from "@/lib/postSignIn";
 import { useIsFetching } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
@@ -94,6 +95,11 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
 
   function startHandover() {
     beganOnSignIn.current = pathname === SIGN_IN_ROUTE;
+    // Published immediately, not on the next render. The handover navigates, and
+    // that navigation is a route change like any other — without this the
+    // platform's own loader would answer it and stack a second full-screen
+    // takeover over this one.
+    setHandoverActive(true);
     setPhase("holding");
     // The floor starts now, not when the document was created: a slow server
     // round trip must not be spent out of the time the mark is on screen.
@@ -170,6 +176,14 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
     // down and the platform is shown in whatever state it turns out to be in.
     const ceiling = setTimeout(() => setPhase("off"), BOOT_CEILING_MS);
     return () => clearTimeout(ceiling);
+  }, [phase]);
+
+  // Every path back to "off" has to withdraw the claim, or the platform's own
+  // loader would stay suppressed for the rest of the session. Done as an effect
+  // on the phase rather than in each of the three places that sets it, so a
+  // fourth cannot forget.
+  useEffect(() => {
+    setHandoverActive(phase !== "off");
   }, [phase]);
 
   return (

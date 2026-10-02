@@ -216,7 +216,7 @@ describe("postSignIn", () => {
     // interruption. The remainder is the rest, which is what the officer is
     // meant to see: a formed, still mark rather than one still moving.
     expect(BOOT_MINIMUM_MS).toBeGreaterThan(2000);
-    expect(BOOT_MINIMUM_MS).toBeLessThan(4000);
+    expect(BOOT_MINIMUM_MS).toBeLessThanOrEqual(2400);
   });
 
   it("leaves room in the ceiling for the hold and the handover both", () => {

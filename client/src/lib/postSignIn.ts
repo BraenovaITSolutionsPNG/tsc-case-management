@@ -45,14 +45,17 @@ const NOTE_MAX_AGE_MS = 30_000;
  * much time has passed and the platform's own queries have settled, so a slow
  * server round trip is never cut short and a fast one is never rushed.
  *
- * 2600ms because the mark takes 2000ms to assemble and then stops, and the floor
+ * 2200ms because the mark takes 2000ms to assemble and then stops, and the floor
  * has to clear that or the handover would interrupt the one animation this screen
- * exists to show. The remaining 600ms is the rest — the mark formed and still,
- * the bar full, nothing moving — before it dissolves. Cutting at 2000 would hand
- * over on the frame the mark completes, which reads as the animation being
- * interrupted rather than as finishing.
+ * exists to show. The remaining 200ms is just enough of a rest that the mark is
+ * seen finished — formed, still, bar full — rather than caught mid-assembly.
+ *
+ * Longer than that is dead time, and it was the thing that made the handover feel
+ * reluctant: the officer watches a motionless logo while their register has
+ * already loaded behind it. Everything the screen waits for beyond this floor is
+ * real work arriving, not padding.
  */
-export const BOOT_MINIMUM_MS = 2600;
+export const BOOT_MINIMUM_MS = 2200;
 
 /**
  * How long the handover takes.
@@ -188,4 +191,80 @@ export function consumePostSignIn(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether the branded screen is currently up.
+ *
+ * The platform's own full-screen loader and this one must never be on screen at
+ * the same time. The handover navigates, and that navigation is a route change
+ * like any other, so the platform loader would answer it and put a second
+ * takeover over the first — which is the sequence of two loaders this whole
+ * mechanism exists to avoid, just in the other order.
+ *
+ * A module-level flag rather than a DOM attribute because the two components are
+ * siblings under the root layout and neither is an ancestor of the other, so
+ * there is nothing to read a context from that both can see.
+ */
+let handoverActive = false;
+
+const HANDOVER_EVENT = "tsc:handover";
+
+/** Called by the gate as it enters and leaves the branded screen. */
+export function setHandoverActive(active: boolean): void {
+  if (handoverActive === active) return;
+  handoverActive = active;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(HANDOVER_EVENT, { detail: { active } })
+    );
+  } catch {
+    // No CustomEvent. The flag itself is still set, so a later reader that asks
+    // directly is correct; only a listener already mounted would miss the change.
+  }
+}
+
+export function isHandoverActive(): boolean {
+  return handoverActive;
+}
+
+/**
+ * Notified when the branded screen goes up or comes down. Calls the listener
+ * immediately with the current state, so a component that mounts mid-handover
+ * does not have to guess and briefly shows itself.
+ */
+export function onHandoverChange(
+  listener: (active: boolean) => void
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  listener(handoverActive);
+  const handler = (event: Event) =>
+    listener((event as CustomEvent<{ active: boolean }>).detail.active);
+  window.addEventListener(HANDOVER_EVENT, handler);
+  return () => window.removeEventListener(HANDOVER_EVENT, handler);
+}
+
+/**
+ * Raised when the officer signs out, so the platform's own loader can cover the
+ * sign-out rather than the page quietly changing under them.
+ *
+ * Sign-out ends in a full document load of `/login`, so there is no route change
+ * to observe — the document simply goes. An event is the only way to say "this
+ * is happening now" to something that is about to be destroyed.
+ */
+const SIGNOUT_EVENT = "tsc:signing-out";
+
+export function beginSignOut(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT));
+  } catch {
+    // No event. The sign-out still completes; it just is not covered.
+  }
+}
+
+export function onSignOut(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = () => listener();
+  window.addEventListener(SIGNOUT_EVENT, handler);
+  return () => window.removeEventListener(SIGNOUT_EVENT, handler);
 }

@@ -1,3 +1,4 @@
+import { beginSignOut } from "@/lib/postSignIn";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
@@ -22,6 +23,11 @@ export function useAuth(options?: UseAuthOptions) {
   });
 
   const logout = useCallback(async () => {
+    // Raised before the request, not after. Sign-out ends in a full document
+    // load of the sign-in screen, so nothing observable survives it — the only
+    // way to cover the gap is to say "this is happening" to something that is
+    // about to be destroyed.
+    beginSignOut();
     try {
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
@@ -48,6 +54,16 @@ export function useAuth(options?: UseAuthOptions) {
       loading: meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(meQuery.data),
+      /**
+       * A sign-out in progress, as distinct from `loading`.
+       *
+       * `loading` folds this in, which is right for a layout that just wants to
+       * know whether to show something provisional. It is wrong for a screen that
+       * has to choose *which* provisional thing: the layout reads `loading` and
+       * reaches for its skeleton, so an officer pressing Sign out got a skeleton
+       * of a page they had just left rather than the platform's loader.
+       */
+      signingOut: logoutMutation.isPending,
     }),
     [
       meQuery.data,

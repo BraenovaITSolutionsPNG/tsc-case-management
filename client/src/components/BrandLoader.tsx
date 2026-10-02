@@ -14,8 +14,8 @@ import { cn } from "@/lib/utils";
  *
  *  - Not indeterminate-length. There is no fake percentage. The ring is a
  *    progress cycle, not a count, because the app cannot know how much is left.
- *  - Not blocking. `PageLoader` covers the viewport; `RouteProgress` is a bar
- *    along the top; `InlineLoader` sits in a button. Same mark, three jobs.
+ *  - Not blocking. `PageLoader` covers the viewport; `InlineLoader` sits in a
+ *    button. Same mark, two jobs.
  *  - Not motion the reader did not ask for. Every animation is a keyframe that
  *    `prefers-reduced-motion` switches off, leaving a static "in progress" pose
  *    in its place (see index.css) — because a frozen spinner reads as a dead
@@ -121,27 +121,6 @@ export function PageLoader({ label = "Loading" }: { label?: string }) {
         {label}
       </p>
       <span className="sr-only">{label}</span>
-    </div>
-  );
-}
-
-/**
- * A bar along the top of the window, for a move between pages.
- *
- * A full-screen takeover on every click would flash the whole app for what is
- * usually a fraction of a second, which reads as jank rather than as feedback.
- * A bar that appears and disappears is the same information at a fraction of
- * the cost.
- */
-export function RouteProgress() {
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden bg-teal-100/60"
-    >
-      <div className="h-full w-1/4 rounded-full bg-teal-600 animate-loader-bar" />
-      <span className="sr-only">Loading page</span>
     </div>
   );
 }
