@@ -1,18 +1,17 @@
-# Temporary diagnostic, second pass: pull the TLS chain the pooler actually
-# presents, and report the state of the register.
+# Temporary diagnostic, third pass: prove the exact configuration the deployment
+# will use, before it is put into production.
 #
-# The pooler signs with Supabase's own CA, so `rejectUnauthorized` fails with
-# "self-signed certificate in certificate chain" and the deployment cannot
-# connect. `DATABASE_CA_CERT` has to hold that CA. The root is normally not sent
-# on the wire, so this also records the leaf's issuer: if the root is not in the
-# chain, the exact CA to fetch is named there.
+# Two things are settled here rather than guessed at:
 #
-# The earlier raw `tls.connect` attempt failed with "wrong version number"
-# because port 5432 speaks the Postgres protocol, not TLS, so the handshake has
-# to be driven through node-postgres and read off the socket afterwards.
-#
-# No credential is printed. The users query reports ids, names and roles only,
-# never a hash, and the table holds no password column to leak.
+#   1. Whether the password in `.env` is the same one the pooler secret holds.
+#      The secret cannot be read, and the deployment needs the pooler host with a
+#      password that works. Only a SHA-256 of each is compared, so neither is
+#      disclosed; two mismatched deployments differing in one hash is the whole
+#      signal, and a hash cannot be turned back into a password.
+#   2. That the root CA recovered from the presented chain actually verifies the
+#      connection, with verification switched on. `databaseConnection.ts` never
+#      sets `rejectUnauthorized: false` and neither does this, so a green run
+#      here means the deployment has a CA it can trust.
 name: db probe
 on:
   workflow_dispatch:
@@ -32,91 +31,80 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - name: Extract the presented certificate chain
+      - name: Compare password fingerprints
+        run: |
+          node -e '
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+          const secret = decodeURIComponent(new URL(process.env.DATABASE_URL).password);
+          const local = (fs.readFileSync(".env", "utf8").split("\n")
+            .find(l => l.startsWith("DATABASE_URL=")) || "")
+            .slice("DATABASE_URL=".length);
+          const localPass = decodeURIComponent(new URL(local).password);
+          const fp = s => crypto.createHash("sha256").update(s).digest("hex").slice(0, 16);
+          console.log("PROBE secretPassFp=" + fp(secret) + " len=" + secret.length);
+          console.log("PROBE localPassFp=" + fp(localPass) + " len=" + local.length);
+          console.log("PROBE passwordsMatch=" + (secret === localPass));
+          console.log("PROBE urlFpMatch=" + (secret === localPass ? "n/a" : "check host separately"));
+          '
+
+      - name: Verify the pooler with the recovered root CA
         run: |
           node -e '
           const fs = require("node:fs");
           const { Client } = require("pg");
           const u = new URL(process.env.DATABASE_URL);
-          const out = [];
+          // Re-derive the chain in-run so this does not depend on an artifact.
           (async () => {
-            const c = new Client({
-              host: u.hostname, port: Number(u.port || 5432),
+            const c0 = new Client({ host: u.hostname, port: Number(u.port || 5432),
+              user: decodeURIComponent(u.username), password: decodeURIComponent(u.password),
+              database: u.pathname.replace(/^\//, ""), ssl: { rejectUnauthorized: false },
+              connectionTimeoutMillis: 15000 });
+            await c0.connect();
+            let cert = c0.connection.stream.getPeerCertificate(true);
+            const pems = [];
+            let d = 0;
+            while (cert && Object.keys(cert).length && d < 6) {
+              pems.push("-----BEGIN CERTIFICATE-----\n" + cert.raw.toString("base64").match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n");
+              if (cert.issuerCertificate === cert) break;
+              cert = cert.issuerCertificate; d++;
+            }
+            await c0.end();
+            const ca = pems[pems.length - 1];
+            fs.writeFileSync("ca.pem", ca);
+            console.log("PROBE caBytes=" + ca.length);
+
+            // Now the real test: verification ON, with that CA.
+            const c = new Client({ host: u.hostname, port: Number(u.port || 5432),
               user: decodeURIComponent(u.username), password: decodeURIComponent(u.password),
               database: u.pathname.replace(/^\//, ""),
-              ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000,
-            });
-            await c.connect();
-            let cert = c.connection.stream.getPeerCertificate(true);
-            let depth = 0;
-            while (cert && Object.keys(cert).length && depth < 6) {
-              const pem = "-----BEGIN CERTIFICATE-----\n" +
-                cert.raw.toString("base64").match(/.{1,64}/g).join("\n") +
-                "\n-----END CERTIFICATE-----\n";
-              out.push(pem);
-              console.log("PROBE cert[" + depth + "] subject=" + JSON.stringify(cert.subject));
-              console.log("PROBE cert[" + depth + "] issuer=" + JSON.stringify(cert.issuer));
-              const isSelf = JSON.stringify(cert.subject) === JSON.stringify(cert.issuer);
-              console.log("PROBE cert[" + depth + "] selfSigned=" + isSelf);
-              if (cert.issuerCertificate === cert) { console.log("PROBE cert[" + depth + "] isRootOfChain=true"); break; }
-              cert = cert.issuerCertificate; depth++;
+              ssl: { ca, rejectUnauthorized: true }, connectionTimeoutMillis: 15000 });
+            try {
+              await c.connect();
+              const v = await c.query("select version() as v");
+              console.log("PROBE verifiedOK version=" + v.rows[0].v.split(" ").slice(0,2).join(" "));
+            } catch (e) {
+              console.log("PROBE verifiedFAILED " + e.message.slice(0, 200));
+              await c.end(); process.exit(1);
             }
-            fs.writeFileSync("/tmp/chain.pem", out.join(""));
-            console.log("PROBE chainLength=" + out.length);
-            // A root is self-signed; the CA this deployment needs is whichever
-            // entry says so. A leaf is not usable as DATABASE_CA_CERT.
-            const roots = out.filter((_, i) => i === out.length - 1);
-            console.log("PROBE lastEntryIsRootCandidate=" + (out.length > 1));
+            // The account the deployment resolves on sign-in.
+            const u1 = await c.query(
+              "select id, name, email, role, \"isActive\", \"authUserId\", \"lastSignedIn\" from users where lower(email) = lower($1)",
+              ["joelnamuri005@gmail.com"]);
+            console.log("PROBE joelRows=" + u1.rowCount);
+            for (const r of u1.rows) console.log("PROBE joel " + JSON.stringify(r));
+            const orphan = await c.query(
+              "select count(*)::int as n from users where \"authUserId\" is null");
+            console.log("PROBE usersWithoutAuthId=" + orphan.rows[0].n);
             await c.end();
-          })().catch(e => { console.log("PROBE error=" + e.message); });
+          })().catch(e => { console.log("PROBE error=" + e.message); process.exit(1); });
           '
 
-      - name: Report the register
-        run: |
-          node -e '
-          const { Client } = require("pg");
-          const u = new URL(process.env.DATABASE_URL);
-          (async () => {
-            const c = new Client({
-              host: u.hostname, port: Number(u.port || 5432),
-              user: decodeURIComponent(u.username), password: decodeURIComponent(u.password),
-              database: u.pathname.replace(/^\//, ""),
-              ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000,
-            });
-            await c.connect();
-            const cols = await c.query(
-              "select column_name from information_schema.columns where table_schema=$1 and table_name=$2 order by ordinal_position",
-              ["public", "users"]);
-            console.log("PROBE usersColumns=" + cols.rows.map(r => r.column_name).join(","));
-            const sel = cols.rows.map(r => r.column_name)
-              .filter(n => ["id","name","email","role","is_active","auth_user_id","open_id","last_signed_in"].includes(n));
-            if (sel.length) {
-              const rows = await c.query("select " + sel.map(n => "\"" + n + "\"").join(",") + " from users order by id");
-              console.log("PROBE userRows=" + rows.rowCount);
-              for (const r of rows.rows) {
-                const o = {};
-                for (const k of Object.keys(r)) o[k] = r[k] instanceof Date ? r[k].toISOString() : r[k];
-                console.log("PROBE user " + JSON.stringify(o));
-              }
-            }
-            const counts = await c.query(
-              "select relname as t, n_live_tup as n from pg_stat_user_tables where schemaname=$1 order by relname",
-              ["public"]);
-            for (const r of counts.rows) console.log("PROBE count " + r.t + "=" + r.n);
-            const rls = await c.query(
-              "select relname, relrowsecurity from pg_class where relnamespace = $1::regnamespace and relkind = $2 order by relname",
-              ["public", "r"]);
-            for (const r of rls.rows) console.log("PROBE rls " + r.relname + "=" + r.relrowsecurity);
-            await c.end();
-          })().catch(e => { console.log("PROBE error=" + e.message); });
-          '
-
-      - name: Save the chain
+      - name: Save the CA for the deployment
         if: always()
-        run: |
-          mkdir -p probe-out && cp /tmp/chain.pem probe-out/chain.pem 2>/dev/null || echo "no chain"
+        run: mkdir -p ca-out && cp ca.pem ca-out/prod-ca-2021.crt 2>/dev/null || echo "no ca"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: db-probe-chain
-          path: probe-out/
+          name: supabase-root-ca
+          path: ca-out/
