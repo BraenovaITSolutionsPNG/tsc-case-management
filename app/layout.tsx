@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import { AppErrorBoundary } from "./error-boundary";
 import { NavigationProgress } from "@/components/NavigationProgress";
+import { PostSignInGate } from "@/components/PostSignInGate";
 import "@/index.css";
 
 /**
@@ -49,7 +50,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               officer sees the bar and the error together, rather than a bar
               that stops because the screen it was heading for never arrived. */}
           <NavigationProgress />
-          <Providers>{children}</Providers>
+          <Providers>
+            {/*
+             * Above the router, so the branded screen survives the navigation
+             * that follows a sign-in. The dashboard is a Server Component and
+             * takes seconds to arrive; without a screen of its own mounted
+             * before that navigation starts, App Router's ordinary fallback
+             * covers the wait and the officer sees a loader, then a logo, then
+             * the platform.
+             */}
+            <PostSignInGate>{children}</PostSignInGate>
+          </Providers>
         </AppErrorBoundary>
       </body>
     </html>

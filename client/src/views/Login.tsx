@@ -315,12 +315,22 @@ function LoginForm() {
       // client-side cache. `next` is same-origin relative or it would have been
       // dropped by the sign-in screen's own check before reaching here.
       //
-      // The note left first, because the navigation ends this document and the
-      // layout on the other side is the only thing that can read it. Without
-      // this the platform opens and nothing marks that the officer has just
-      // signed in rather than arrived some other way.
+      // The note and the event first, then a *client-side* navigation. Both
+      // halves matter and the order is load-bearing.
+      //
+      // The event is how the gate above the router learns a sign-in happened, and
+      // it only works if the gate is still mounted — so this cannot be a full
+      // document load, which would tear the document down and take the gate with
+      // it. A client-side push keeps it, and the branded screen therefore covers
+      // the whole wait rather than appearing after it.
+      //
+      // A hard navigation was the older behaviour, chosen so the server would
+      // resolve the session on the first paint. That is still true here — the
+      // dashboard is a Server Component and fetches its own session — but the
+      // hard load bought it at the cost of a full teardown, and with it the
+      // branded screen, which is what this whole mechanism is for.
       markPostSignIn();
-      window.location.assign(next ?? "/");
+      router.push(next ?? "/");
     } catch (error) {
       // Logged before it is replaced by a generic sentence, because this branch
       // fires on anything thrown — including exceptions raised *after* Supabase

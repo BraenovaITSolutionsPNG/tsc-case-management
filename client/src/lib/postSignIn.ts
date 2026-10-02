@@ -25,18 +25,18 @@ const FLAG = "tsc-post-sign-in";
 /**
  * How long the post-sign-in screen holds before the platform is handed over.
  *
- * The floor exists because a screen that appears for 200ms reads as a glitch
- * rather than as a moment. It is a floor and not a fixed duration: the platform
- * is revealed the moment both the session has resolved and this much time has
- * passed, so a slow boot is never cut short and a fast one is never rushed.
+ * A floor, not a fixed duration: the platform is revealed the moment both this
+ * much time has passed and the platform's own queries have settled, so a slow
+ * server round trip is never cut short and a fast one is never rushed.
  *
- * Two seconds is the figure the transition was designed around — long enough for
- * the mark to finish assembling itself once (the animation runs on a 3.4s cycle,
- * so two seconds lands in the middle of the mark settling rather than after it
- * has finished) and short enough that an officer is not watching a logo while
- * their register waits behind it.
+ * 2600ms because the mark takes 2000ms to assemble and then stops, and the floor
+ * has to clear that or the handover would interrupt the one animation this screen
+ * exists to show. The remaining 600ms is the rest — the mark formed and still,
+ * the bar full, nothing moving — before it dissolves. Cutting at 2000 would hand
+ * over on the frame the mark completes, which reads as the animation being
+ * interrupted rather than as finishing.
  */
-export const BOOT_MINIMUM_MS = 2000;
+export const BOOT_MINIMUM_MS = 2600;
 
 /**
  * How long the handover takes.
@@ -66,6 +66,23 @@ export const BOOT_FADE_MS = 500;
  */
 export const BOOT_CEILING_MS = 8000;
 
+/**
+ * The event the sign-in screen fires alongside the note.
+ *
+ * The note in storage covers the case where the platform is entered as a *new
+ * document*. It cannot cover the ordinary one: the sign-in screen and the
+ * platform it opens are the same document on a client-side navigation, so
+ * anything already mounted — the gate that draws the branded screen — is
+ * looking at a state that will not change on its own. The event is how the
+ * screen tells it.
+ *
+ * A DOM event rather than a shared exported callback because the two live on
+ * either side of a routing boundary and neither should have to import the
+ * other's React tree. `CustomEvent` is used directly for the same reason:
+ * `Event` would not carry a detail, and the detail is the whole message.
+ */
+const EVENT = "tsc:post-sign-in";
+
 /** Called by the sign-in screen once the credential has been accepted. */
 export function markPostSignIn(): void {
   // A browser with storage disabled throws here rather than returning null, and
@@ -78,10 +95,55 @@ export function markPostSignIn(): void {
     // Storage unavailable. The platform still opens; it just opens without the
     // branded screen.
   }
+
+  // Dispatched outside the try: a listener that cannot be told is not a reason
+  // to withhold the note, and a dispatch on a browser without CustomEvent is a
+  // browser this app does not support.
+  try {
+    window.dispatchEvent(new CustomEvent(EVENT));
+  } catch {
+    // No event to send. The note alone still covers a new-document entry.
+  }
 }
 
 /**
- * Reads the note and clears it, so exactly one screen sees it.
+ * Subscribes to the sign-in hand-off. Returns the unsubscribe function.
+ *
+ * Safe to call during render, which is how the gate uses it: the subscription
+ * is torn down by the effect that made it, and the callback is only ever invoked
+ * from an event, never during the subscription itself.
+ */
+export function onPostSignIn(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = () => listener();
+  window.addEventListener(EVENT, handler);
+  return () => window.removeEventListener(EVENT, handler);
+}
+
+/**
+ * Whether a note is waiting, without consuming it.
+ *
+ * Separate from `consumePostSignIn` because the note is now read by more than
+ * one place in sequence. App Router renders `app/loading.tsx` for the round trip
+ * between the sign-in screen and the first paint of the platform, and that has
+ * to *see* the note to know it should draw the branded screen rather than the
+ * ordinary one. If reading it cleared it, the layout would find nothing by the
+ * time it mounted and hand over to a loader that was never shown.
+ *
+ * So the sequence is: peek, draw, and then consume once — in the layout, which
+ * is the last reader and the one that owns the handover.
+ */
+export function peekPostSignIn(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(FLAG) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reads the note and clears it, so exactly one reader acts on it.
  *
  * Returns false when there is no note, when storage is unavailable, or when this
  * is not the browser at all.

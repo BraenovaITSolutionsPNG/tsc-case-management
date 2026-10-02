@@ -6,6 +6,8 @@ import {
   BOOT_MINIMUM_MS,
   consumePostSignIn,
   markPostSignIn,
+  onPostSignIn,
+  peekPostSignIn,
 } from "./postSignIn";
 
 /**
@@ -42,17 +44,23 @@ function fakeStorage(options: { failOn?: "set" | "get" | "all" } = {}) {
 }
 
 /**
- * Installs a fake `window` carrying this storage.
+ * A `window` stand-in: real `EventTarget` methods, fake storage.
  *
  * The suite runs in the `node` environment, so there is no `window` to patch and
- * no jsdom to borrow one from — the module is written to tolerate the browser
- * being absent, so the whole surface it touches is stubbed directly. That is also
- * what makes the last case in this file meaningful: with no window at all, the
- * read has to answer "no note" rather than throw.
+ * no jsdom to borrow one from, and the whole surface the module touches is
+ * stubbed directly. It is an actual EventTarget rather than a plain object
+ * because a real `window` is one, and the sign-in event is dispatched and
+ * listened for on it — an object with only `sessionStorage` would fail for the
+ * wrong reason and hide a real fault.
+ *
+ * This is also what makes the last case in the file meaningful: with no window at
+ * all, a read has to answer "no note" rather than throw.
  */
 function install(storage: unknown) {
+  const target = new EventTarget();
+  Object.defineProperty(target, "sessionStorage", { value: storage });
   Object.defineProperty(globalThis, "window", {
-    value: { sessionStorage: storage },
+    value: target,
     configurable: true,
     writable: true,
   });
@@ -80,6 +88,21 @@ describe("postSignIn", () => {
     expect(consumePostSignIn()).toBe(true);
     expect(consumePostSignIn()).toBe(false);
     expect(consumePostSignIn()).toBe(false);
+  });
+
+  it("lets two readers see the note before the last one takes it", () => {
+    // App Router's loading fallback runs first and has to know a sign-in is
+    // waiting so it does not draw the ordinary loader, and the gate above the
+    // router runs second and takes it. If the fallback consumed instead of
+    // peeking, the gate would find nothing and hand over from a screen that was
+    // never shown - a skeleton appearing exactly as the logo leaves.
+    install(fakeStorage());
+    markPostSignIn();
+
+    expect(peekPostSignIn()).toBe(true);
+    expect(peekPostSignIn()).toBe(true);
+    expect(consumePostSignIn()).toBe(true);
+    expect(peekPostSignIn()).toBe(false);
   });
 
   it("reports nothing on an ordinary arrival at the platform", () => {
@@ -143,11 +166,13 @@ describe("postSignIn", () => {
     expect(consumePostSignIn()).toBe(false);
   });
 
-  it("holds for two seconds, so the mark finishes assembling", () => {
-    // The mark runs a 3.4s cycle and reaches full opacity at 88% of it, so a
-    // shorter hold would cut it off mid-assembly. This is the figure the
-    // transition was designed around, so it is pinned rather than left to drift.
-    expect(BOOT_MINIMUM_MS).toBe(2000);
+  it("holds past the end of the mark's animation, then lets it rest", () => {
+    // The mark assembles over 2000ms and stops. The floor has to clear that or
+    // the handover lands on the frame the animation completes, which reads as an
+    // interruption. The remainder is the rest, which is what the officer is
+    // meant to see: a formed, still mark rather than one still moving.
+    expect(BOOT_MINIMUM_MS).toBeGreaterThan(2000);
+    expect(BOOT_MINIMUM_MS).toBeLessThan(4000);
   });
 
   it("leaves room in the ceiling for the hold and the handover both", () => {
@@ -178,11 +203,43 @@ describe("postSignIn", () => {
   });
 });
 
+describe("the sign-in event", () => {
+  it("reaches a listener without a document change", () => {
+    // The gate is mounted above the router, so on a client-side navigation the
+    // note in storage is not the only signal - the gate is already there and has
+    // to be told. The event is how. A full document load would tear the gate
+    // down, which is why the sign-in screen navigates without one.
+    install(fakeStorage());
+    let heard = 0;
+    const stop = onPostSignIn(() => {
+      heard += 1;
+    });
+
+    markPostSignIn();
+    expect(heard).toBe(1);
+
+    stop();
+    markPostSignIn();
+    // Unsubscribed: a gate that has been torn down must not be called back.
+    expect(heard).toBe(1);
+  });
+
+  it("still leaves the note when there is no listener to hear it", () => {
+    // The note is what covers entering the platform as a new document, so it is
+    // written whether or not anything is listening.
+    install(fakeStorage());
+    markPostSignIn();
+    expect(peekPostSignIn()).toBe(true);
+  });
+});
+
 describe("postSignIn without a browser", () => {
   it("reports no note where there is no window at all", () => {
     // The server renders the layout too, and `sessionStorage` does not exist
     // there. Reading a note that cannot exist has to be an ordinary "no".
     Reflect.deleteProperty(globalThis as object, "window");
     expect(consumePostSignIn()).toBe(false);
+    expect(peekPostSignIn()).toBe(false);
+    expect(() => onPostSignIn(() => {})()).not.toThrow();
   });
 });
