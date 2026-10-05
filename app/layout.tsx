@@ -32,15 +32,15 @@ export const metadata: Metadata = {
 /**
  * Fetch the mark before it is needed.
  *
- * The post-sign-in screen is drawn only after a credential is accepted, and the
- * mark is the one thing on it that cannot be drawn late — the ring assembles
- * itself over two seconds, and an empty circle for that two seconds is not a
- * loading state, it is a broken image. Without this the 40 KB fetch starts at the
- * moment the screen appears, on the same connection that is still carrying the
- * dashboard, so on a slow link the animation runs against nothing.
- *
- * So it is asked for here, on every page, where it costs one small request and
- * arrives long before it is looked at.
+ * The branded post-sign-in screen — currently disabled, see
+ * `PostSignInGate` — is the only thing that draws the mark at
+ * size, and the mark is the one thing on it that cannot be drawn
+ * late: the ring assembles itself over two seconds, and an empty
+ * circle for those two seconds is not a loading state, it is a
+ * broken image. The preload stays while the screen is away so
+ * that its return is a decision in the sign-in screen alone; it
+ * costs one small request on every page and arrives long before
+ * it is looked at.
  *
  * `imageSizes` rather than a srcset, because this build serves the static import
  * unoptimised - the measured wire weight was 1.23 MB for the PNG this replaced -
@@ -87,12 +87,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <PlatformPageLoader />
           <Providers>
             {/*
-             * Above the router, so the branded screen survives the navigation
-             * that follows a sign-in. The dashboard is a Server Component and
-             * takes seconds to arrive; without a screen of its own mounted
-             * before that navigation starts, App Router's ordinary fallback
-             * covers the wait and the officer sees a loader, then a logo, then
-             * the platform.
+             * Above the router. It drew the branded screen between a
+             * sign-in and the platform until that screen was disabled on
+             * 2026-10-05 — on a slow round trip it came down before the
+             * platform had arrived and the officer was shown a second
+             * loading state after the logo. It stays mounted for the note
+             * it consumes, and so the screen's return is a change in the
+             * sign-in screen alone.
              */}
             <PostSignInGate>{children}</PostSignInGate>
           </Providers>

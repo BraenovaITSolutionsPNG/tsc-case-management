@@ -7,17 +7,20 @@ import { useEffect, useState } from "react";
 /**
  * Chooses between the two full-screen loaders App Router can show.
  *
- * The ordinary case is `PageLoader`, and it is the right answer for every
- * navigation inside the platform. It is the wrong answer for the one navigation
- * that follows a sign-in: the officer has just proved who they are, and being
- * shown a generic "Checking your session" for the seconds the dashboard takes to
- * arrive undoes the moment the sign-in screen just spent making. So where a
- * sign-in is waiting, this draws the branded screen instead.
+ * Today that choice has one answer: the ordinary `PageLoader`, for every
+ * navigation. The branded branch is unreachable — it keyed off the note
+ * the sign-in screen used to write to announce the handover, and that
+ * note has not been written since the branded post-sign-in screen was
+ * disabled on 2026-10-05 (on a slow round trip it came down before the
+ * platform had arrived, leaving a second loading state after the logo;
+ * see `PostSignInGate`). The peek stays rather than being deleted, so
+ * the choice still has one home and the branded screen returns by
+ * writing the note again.
  *
  * It *peeks* at the note rather than consuming it. App Router renders this
- * before the root layout's gate has mounted, so this is the first reader; the
- * gate is the last and takes it. A version that consumed here would leave the
- * gate with nothing to hand over from and put a skeleton on screen at the exact
+ * before the root layout's gate has mounted, so this is the first reader;
+ * the gate is the last and takes it. A version that consumed here would leave
+ * the gate with nothing to hand over from and put a skeleton on screen at the exact
  * moment the logo leaves.
  *
  * The state is deliberately `null` until mounted. Rendering the branded screen

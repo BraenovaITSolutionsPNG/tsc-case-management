@@ -9,8 +9,14 @@ import { usePersistFn } from "@/hooks/usePersistFn";
 const noop = () => {};
 
 /**
- * The branded screen shown once, after a successful sign-in and before the
- * platform appears.
+ * The branded screen shown once, after a successful sign-in and before
+ * the platform appears.
+ *
+ * Currently unreachable: the sign-in screen stopped announcing the
+ * handover on 2026-10-05, so nothing mounts this component (see
+ * `PostSignInGate` for why it was disabled). It is kept exactly as it
+ * stands so the screen returns by re-enabling the handover, not by
+ * rebuilding this.
  *
  * Two things it is deliberately not. It is not a progress bar that means
  * anything: nothing here reports how much of the platform is ready, because

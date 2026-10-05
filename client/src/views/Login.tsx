@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import officeIllustration from "@assets/login-bg-img/added-img.webp";
 import { LANDING_PATH } from "@shared/landing";
-import { markPostSignIn } from "@/lib/postSignIn";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -308,22 +307,26 @@ function LoginForm() {
         return;
       }
 
-      // The session is now in the cookie. The note and the event
-      // first, then a *client-side* navigation. Both halves matter and the order
-      // is load-bearing.
+      // The session is now in the cookie, and the navigation to the
+      // platform is a *client-side* one. A hard load was the older
+      // behaviour, chosen so the server would resolve the session on the
+      // first paint — which the landing screen still does, being a Server
+      // Component — but it bought that at the cost of tearing the whole
+      // document down, and a push keeps the shell the officer is already
+      // looking at.
       //
-      // The event is how the gate above the router learns a sign-in happened, and
-      // it only works if the gate is still mounted — so this cannot be a full
-      // document load, which would tear the document down and take the gate with
-      // it. A client-side push keeps it, and the branded screen therefore covers
-      // the whole wait rather than appearing after it.
-      //
-      // A hard navigation was the older behaviour, chosen so the server would
-      // resolve the session on the first paint. That is still true of the landing
-      // screen — the overview is a Server Component and fetches its own session —
-      // but the hard load bought it at the cost of a full teardown, and with it
-      // the branded screen, which is what this whole mechanism is for.
-      markPostSignIn();
+      // No `markPostSignIn()` here any more. It used to announce the
+      // handover so the branded logo screen came up over the wait for the
+      // dashboard. That screen was disabled on 2026-10-05: it was bounded
+      // by an eight-second ceiling, so on a slow round trip it dissolved
+      // before the platform had arrived and the officer was shown a second
+      // loading state directly after the logo — two loaders in a row, the
+      // exact sequence the screen was built to prevent. The loader App
+      // Router draws for the navigation has no ceiling of its own, so it
+      // now covers the whole wait, and the overview arrives with its
+      // figures already in the dehydrated cache rather than skeleton-first.
+      // To bring the branded screen back, call `markPostSignIn()` again
+      // before the navigation.
       router.push(LANDING_PATH);
     } catch (error) {
       // Logged before it is replaced by a generic sentence, because this branch

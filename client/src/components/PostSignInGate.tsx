@@ -33,26 +33,21 @@ type Phase = "off" | "holding" | "fading";
 /**
  * Draws the branded screen between a sign-in and the platform.
  *
- * It lives above the router, in the root layout, rather than inside a screen,
- * and that placement is the whole point of it.
+ * Currently it draws nothing. The branded screen was disabled on
+ * 2026-10-05: it was bounded by `BOOT_CEILING_MS`, so on a slow server
+ * round trip it came down before the platform had arrived and the
+ * officer was shown a second loading state directly after the logo —
+ * two loaders in a row, the exact sequence this screen existed to
+ * prevent. The sign-in screen no longer writes the note, so no handover
+ * ever starts and this gate passes its children straight through.
  *
- * A sign-in ends with a navigation that takes seconds: the dashboard is a Server
- * Component and resolves the session and the figures server-side, which on this
- * deployment is a three-way round trip before anything is painted. App Router
- * covers that window with `app/loading.tsx`, so with the branded screen inside a
- * screen the officer saw the ordinary loader for those seconds and *then* the
- * branded one — two loaders in a row, the first of which is the thing being
- * replaced. Put here instead, this mounts once and is already up before the
- * navigation is even started, and it stays up across the round trip.
- *
- * So the two halves of the fix are: this covers the server wait, and the sign-in
- * screen starts the navigation with `router.push` rather than a full document
- * load, which is what keeps this component mounted across it.
- *
- * It must never be a trap. It covers the viewport, so it is bounded three ways —
- * a floor, so the mark is seen at all; a ceiling, so a request that never
- * settles cannot leave an officer staring at a logo; and the platform's own
- * readiness, so the handover waits for real data rather than for a guess.
+ * What stays, and why: the note is still consumed on mount, so one left
+ * by an older build — or by a sign-in that re-enables the screen —
+ * cannot sit in sessionStorage and be believed by a later reader; and
+ * the machinery below stays intact, so the screen returns by writing the
+ * note again rather than by rebuilding this component. The reasoning
+ * below is kept because it is the reasoning the screen would return
+ * with.
  */
 /** The one route the branded screen is ever raised from. */
 const SIGN_IN_ROUTE = "/login";
