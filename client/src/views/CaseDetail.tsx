@@ -14,6 +14,13 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { invalidateMatterWrites } from "@/lib/queryInvalidation";
+import {
+  formatDateOnly,
+  formatInstant,
+  parseDateInput,
+  toDateInputValue,
+  todayInputValue,
+} from "@/lib/dateInput";
 import { cn } from "@/lib/utils";
 import { can, refusalFor, type Capability } from "@shared/access";
 import {
@@ -275,7 +282,10 @@ export default function CaseDetail() {
               <dl className="space-y-2.5 text-sm">
                 <Row label="Class of matter" value={matter.matterType} />
                 <Row label="Province" value={matter.province} />
-                <Row label="Received" value={formatDate(matter.dateReceived)} />
+                <Row
+                  label="Received"
+                  value={formatDateOnly(matter.dateReceived)}
+                />
                 <Row
                   label="Officer"
                   value={
@@ -293,7 +303,7 @@ export default function CaseDetail() {
                           overdue ? "font-medium text-red-700" : undefined
                         }
                       >
-                        {formatDate(matter.dueDate)}
+                        {formatDateOnly(matter.dueDate)}
                       </span>
                     ) : (
                       "—"
@@ -342,7 +352,7 @@ export default function CaseDetail() {
                 )}
                 {matter.dateClosed ? (
                   <p className="mt-2 text-xs text-slate-500">
-                    Closed {formatDate(matter.dateClosed)}
+                    Closed {formatDateOnly(matter.dateClosed)}
                     {matter.decidedByName
                       ? ` — decided by ${matter.decidedByName}`
                       : ""}
@@ -523,12 +533,17 @@ function MatterTab({
               id="due-date"
               name="dueDate"
               type="date"
-              defaultValue={toDateInput(matter.dueDate)}
+              defaultValue={toDateInputValue(matter.dueDate)}
               disabled={!canUpdate}
               onChange={event =>
                 send({
+                  // `parseDateInput`, not `new Date(...)`: a date-only ISO string
+                  // is UTC midnight by specification, which is the same reading the
+                  // server applies, and `toDateInputValue` above reads it back the
+                  // same way. Clearing the field sends `null`, which is how the
+                  // matter is left with no deadline.
                   dueDate: event.target.value
-                    ? new Date(event.target.value)
+                    ? parseDateInput(event.target.value)
                     : null,
                 })
               }
@@ -706,7 +721,14 @@ function ClosureForm({
   const utils = trpc.useUtils();
   const [outcome, setOutcome] = useState(currentOutcome);
   const [dateClosed, setDateClosed] = useState(
-    toDateInput(currentDateClosed) ?? todayInputValue()
+    // `||`, not `??`. `toDateInput` answers `""` for a matter with no closure
+    // date, which is a defined string, so `??` passed it straight through and
+    // `todayInputValue` below was dead code. Every first closure therefore opened
+    // with "Date closed" blank, and because `ready` requires it to be filled the
+    // primary button stayed disabled and the officer was told all three fields
+    // were required — for a date the form was meant to pre-fill with the day
+    // they were closing the matter.
+    toDateInputValue(currentDateClosed) || todayInputValue()
   );
   const [communicatedByName, setCommunicatedByName] = useState("");
 
@@ -952,7 +974,7 @@ function ActivityTab({
               <p className="text-sm text-slate-800">{event.note}</p>
               <p className="mt-0.5 text-xs text-slate-500">
                 {event.actorName ?? "Unknown officer"} ·{" "}
-                {formatDateTime(event.createdAt)} ·{" "}
+                {formatInstant(event.createdAt)} ·{" "}
                 {event.eventType.replace(/_/g, " ")}
               </p>
             </li>
@@ -1097,10 +1119,10 @@ function ReferralCard({
             ) : null}
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
-            Referred {formatDate(referral.referredAt)}
+            Referred {formatInstant(referral.referredAt)}
             {referral.referredByName ? ` by ${referral.referredByName}` : ""}
             {" · due "}
-            {formatDate(referral.responseDueDate)}
+            {formatDateOnly(referral.responseDueDate)}
           </p>
         </div>
         <span
@@ -1152,7 +1174,7 @@ function ReferralCard({
             §6 Director notified:
           </span>{" "}
           {referral.directorNotifiedName
-            ? `${referral.directorNotifiedName} on ${formatDate(referral.directorNotifiedAt)}`
+            ? `${referral.directorNotifiedName} on ${formatInstant(referral.directorNotifiedAt)}`
             : "Not recorded"}
         </p>
       ) : null}
@@ -1188,7 +1210,7 @@ function ReferralCard({
       {referral.responseSummary ? (
         <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
           <p className="text-xs font-medium text-slate-700">
-            Response received {formatDate(referral.responseReceivedAt)}
+            Response received {formatInstant(referral.responseReceivedAt)}
           </p>
           <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
             {referral.responseSummary}
@@ -1396,19 +1418,27 @@ function AddDocumentForm({
         return;
       }
     }
-    await add.mutateAsync({
-      caseId,
-      documentClass: documentClass as never,
-      title: title.trim(),
-      ...(note.trim() ? { note: note.trim() } : {}),
-      ...(file && data
-        ? {
-            data,
-            mimeType: file.type as CasefileMimeType,
-            fileName: file.name,
-          }
-        : {}),
-    });
+    try {
+      await add.mutateAsync({
+        caseId,
+        documentClass: documentClass as never,
+        title: title.trim(),
+        ...(note.trim() ? { note: note.trim() } : {}),
+        ...(file && data
+          ? {
+              data,
+              mimeType: file.type as CasefileMimeType,
+              fileName: file.name,
+            }
+          : {}),
+      });
+    } catch {
+      // Swallowed deliberately. `onError` above has already put the refusal on
+      // screen, and this handler is an `onClick`, which React does not await —
+      // so letting `mutateAsync` reject here produced an unhandled rejection on
+      // top of a message the officer could read. The officer's only question is
+      // answered once.
+    }
   };
 
   return (
@@ -1532,7 +1562,7 @@ function DocumentRow({
             : " · recorded, no file attached"}
           {" · "}
           {document.loggedByName ?? "Unknown officer"} ·{" "}
-          {formatDate(document.createdAt)}
+          {formatInstant(document.createdAt)}
         </p>
         {document.note ? (
           <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-600">
@@ -1714,7 +1744,7 @@ function BriefTab({
       {matter.briefPreparedByName ? (
         <p className="mb-3 text-xs text-slate-500">
           Prepared by {matter.briefPreparedByName} on{" "}
-          {formatDate(matter.briefPreparedAt)}.
+          {formatInstant(matter.briefPreparedAt)}.
         </p>
       ) : null}
 
@@ -1953,37 +1983,4 @@ function readAsBase64(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Could not read that file."));
     reader.readAsDataURL(file);
   });
-}
-
-function formatDate(value: Date | string | null | undefined) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatDateTime(value: Date | string | null | undefined) {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("en-AU", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function toDateInput(value: Date | string | null | undefined) {
-  if (!value) return "";
-  const date = new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate()
-  ).padStart(2, "0")}`;
-}
-
-/** Today, as a date input wants it. A matter is closed on the day it is closed. */
-function todayInputValue() {
-  return toDateInput(new Date());
 }
