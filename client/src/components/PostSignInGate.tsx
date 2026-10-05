@@ -14,6 +14,7 @@ import {
 import { useIsFetching } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { usePersistFn } from "@/hooks/usePersistFn";
 
 /**
  * Where the post-sign-in hand-off has got to.
@@ -72,6 +73,47 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
     refetchOnWindowFocus: false,
   });
 
+  // Whether the handover began on the sign-in screen, recorded at the moment it
+  // starts. A gate that begins on a page the officer was already on - the
+  // platform itself, on a hard load, where nothing navigates - must not sit
+  // waiting for a route change that is never coming.
+  const beganOnSignIn = useRef(false);
+
+  /**
+   * Puts the branded screen up, and records whether this handover is one that
+   * still owes us a route change.
+   *
+   * `usePersistFn`, so the function the effect below subscribes keeps one
+   * identity for the life of the component while still running the *current*
+   * body. It was a plain function declaration closed over `pathname`, and that
+   * effect subscribed with `[]` deps — so the listener held the version built on
+   * the first render, with `pathname` frozen at whatever route the gate happened
+   * to mount on. Sign-out never does a document load (`DashboardLayout` reaches
+   * `/login` with `router.replace`, and `Settings` did the same), so the gate is
+   * not remounted and that first-render route is what decided every later
+   * handover. When the gate had mounted on a platform route — any hard load of
+   * `/cases`, `/settings` and so on — `beganOnSignIn` was set `false`, which made
+   * `routeArrived` unconditionally true and silently switched off the very check
+   * described on it as the reason the arrival was smooth. The branded screen then
+   * dissolved over the sign-in form while the dashboard arrived all at once
+   * underneath it.
+   */
+  const startHandover = usePersistFn(() => {
+    beganOnSignIn.current = pathname === SIGN_IN_ROUTE;
+    // Published immediately, not on the next render. The handover navigates, and
+    // that navigation is a route change like any other — without this the
+    // platform's own loader would answer it and stack a second full-screen
+    // takeover over this one.
+    setHandoverActive(true);
+    setPhase("holding");
+    // The floor starts now, not when the document was created: a slow server
+    // round trip must not be spent out of the time the mark is on screen.
+    setFloorPassed(false);
+    // Re-armed for this handover, so the frame below is waited for again rather
+    // than being satisfied by the one that happened on the way in.
+    setPainted(false);
+  });
+
   // The note is taken by whoever acts on it, and both paths below act.
   //
   // They have to. The gate is already mounted by the time a sign-in completes —
@@ -90,36 +132,16 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
     return onPostSignIn(() => {
       if (consumePostSignIn()) startHandover();
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function startHandover() {
-    beganOnSignIn.current = pathname === SIGN_IN_ROUTE;
-    // Published immediately, not on the next render. The handover navigates, and
-    // that navigation is a route change like any other — without this the
-    // platform's own loader would answer it and stack a second full-screen
-    // takeover over this one.
-    setHandoverActive(true);
-    setPhase("holding");
-    // The floor starts now, not when the document was created: a slow server
-    // round trip must not be spent out of the time the mark is on screen.
-    setFloorPassed(false);
-    // Re-armed for this handover, so the frame below is waited for again rather
-    // than being satisfied by the one that happened on the way in.
-    setPainted(false);
-  }
+    // `startHandover` is stable, so this really does run once. The exhaustive-deps
+    // suppression this replaces silenced the rule that would have pointed at the
+    // stale closure above rather than at the deps being genuinely constant.
+  }, [startHandover]);
 
   // The platform's own readiness: a resolved session and nothing in flight.
   //
   // Necessary and not sufficient, which is the whole of the next block. Queries
   // say nothing about whether the route has arrived.
   const ready = !sessionState.isLoading && inFlight === 0;
-
-  // Whether the handover began on the sign-in screen, recorded at the moment it
-  // starts. A gate that begins on a page the officer was already on - the
-  // platform itself, on a hard load, where nothing navigates - must not sit
-  // waiting for a route change that is never coming.
-  const beganOnSignIn = useRef(false);
 
   // The route transition has committed.
   //
@@ -178,12 +200,32 @@ export function PostSignInGate({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(ceiling);
   }, [phase]);
 
+  // Whether the claim below has ever been made.
+  //
+  // Exists solely to stop this effect withdrawing a claim it never saw being
+  // made. On the mount path — a fresh document load that lands on a note left in
+  // sessionStorage — `startHandover` publishes from the first effect, and effects
+  // then run in declaration order inside that one commit, so this effect was
+  // reached with `phase` still at its initial `"off"` and published `false`.
+  // That is the case the "published immediately" comment above exists for, and
+  // it was the one path where the immediate publication was undone: the platform
+  // loader saw `true` then `false` in the same commit, and the loader was
+  // released for one render in the middle of a handover it should have stayed
+  // down for.
+  const claimed = useRef(false);
+
   // Every path back to "off" has to withdraw the claim, or the platform's own
   // loader would stay suppressed for the rest of the session. Done as an effect
   // on the phase rather than in each of the three places that sets it, so a
   // fourth cannot forget.
   useEffect(() => {
-    setHandoverActive(phase !== "off");
+    const active = phase !== "off";
+    // Nothing to withdraw until a claim has been made. On the mount path that
+    // claim is published by `startHandover`, which runs earlier in this same
+    // commit; publishing `false` here would undo it.
+    if (!active && !claimed.current) return;
+    claimed.current = active;
+    setHandoverActive(active);
   }, [phase]);
 
   return (

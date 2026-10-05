@@ -3,6 +3,10 @@
 import appLogo from "@assets/brand/app-logo.webp";
 import Image from "next/image";
 import { useEffect } from "react";
+import { usePersistFn } from "@/hooks/usePersistFn";
+
+/** Stands in for an absent `onMinimumElapsed`, which `usePersistFn` cannot take. */
+const noop = () => {};
 
 /**
  * The branded screen shown once, after a successful sign-in and before the
@@ -32,6 +36,7 @@ import { useEffect } from "react";
  * part-filled. A person who has asked the system to stop moving things is not
  * served by an animation, however well made it is.
  */
+
 export function BootLoader({
   minimumVisibleMs = 2600,
   onMinimumElapsed,
@@ -66,13 +71,37 @@ export function BootLoader({
    */
   fading?: boolean;
 }) {
+  // `onMinimumElapsed` is held stable across renders.
+  //
+  // It is almost always an inline arrow (`() => setFloorPassed(true)`), so it is
+  // a fresh function on every render of the parent — and it was in the
+  // dependency list below, so every one of those renders cleared the timer and
+  // started a fresh `minimumVisibleMs` countdown. `PostSignInGate` re-renders on
+  // every `useIsFetching()` change, so on any handover where queries actually
+  // start or finish the floor was 2.2 seconds from the *last* query rather than
+  // from the handover beginning, and a handover with sustained churn ran into the
+  // `BOOT_CEILING_MS` backstop and hard-cut — the snap `onFadeEnd` exists to
+  // avoid.
+  //
+  // `usePersistFn` keeps the identity the first render produced while calling
+  // through to the newest body, so the effect depends on a value that does not
+  // change and the countdown runs exactly once per mount. `minimumVisibleMs` is a
+  // number, which is already referentially stable, so it needs nothing.
+  //
+  // The prop is optional, and the effect must still not start a timer when it is
+  // absent. A no-op stands in for it so the hook gets a function, and whether a
+  // handler was supplied at all is carried by a boolean — also referentially
+  // stable, unlike the raw prop.
+  const stableOnMinimumElapsed = usePersistFn(onMinimumElapsed ?? noop);
+  const hasMinimumElapsed = onMinimumElapsed !== undefined;
+
   useEffect(() => {
-    if (!onMinimumElapsed) return;
-    const timer = setTimeout(onMinimumElapsed, minimumVisibleMs);
+    if (!hasMinimumElapsed) return;
+    const timer = setTimeout(stableOnMinimumElapsed, minimumVisibleMs);
     // Cleared on unmount, so a sign-in that is interrupted mid-count cannot
     // call back into a component that is no longer there.
     return () => clearTimeout(timer);
-  }, [onMinimumElapsed, minimumVisibleMs]);
+  }, [hasMinimumElapsed, stableOnMinimumElapsed, minimumVisibleMs]);
 
   return (
     <div

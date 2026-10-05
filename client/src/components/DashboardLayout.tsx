@@ -110,27 +110,55 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // The sidebar width is remembered per browser. Read inside a `typeof window`
-  // guard because this initializer also runs while the server is rendering,
-  // where `localStorage` does not exist and reading it throws — which fails the
-  // prerender of every page that renders inside this layout. The server always
-  // renders the default width; the effect below corrects it on the client.
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_WIDTH;
-    const saved = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    const parsed = saved ? parseInt(saved, 10) : NaN;
-    return Number.isFinite(parsed) ? parsed : DEFAULT_WIDTH;
-  });
+  // The sidebar width is remembered per browser.
+  //
+  // The stored value is restored in an effect, not in a `useState` initializer,
+  // and the `typeof window` guard that used to be there was not what it looked
+  // like: an initializer runs on the server *and* on the browser's hydration
+  // render, so the guard separated "server" from "client" without separating
+  // "first render" from "after mount". The server emitted
+  // `--sidebar-width:280px` and the hydration render emitted the officer's saved
+  // width, React 19 failed hydration on that style attribute and re-rendered the
+  // tree — on every page load, for every officer who had ever resized the
+  // sidebar. It is also an impure render, reading storage during render.
+  //
+  // Restoring after mount makes the first client render match the server's and
+  // the stored width appear immediately afterwards, which is what the comment
+  // here used to claim happened. The width is a layout preference, so the
+  // one-frame default costs nothing.
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
+
+  // Whether the stored width has been read yet.
+  //
+  // The write effect below runs on the same commit as the restore, so without
+  // this it would persist `DEFAULT_WIDTH` straight over the stored value before
+  // the restore's state update had been applied. State rather than a ref so the
+  // write effect cannot observe the flag until a render has happened.
+  const [widthRestored, setWidthRestored] = useState(false);
+
   const { loading, user } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     try {
+      const saved = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      const parsed = saved ? parseInt(saved, 10) : NaN;
+      if (Number.isFinite(parsed)) setSidebarWidth(parsed);
+    } catch {
+      // Storage unavailable: the width is simply not remembered.
+    }
+    setWidthRestored(true);
+  }, []);
+
+  useEffect(() => {
+    // Never before the restore has run — see `widthRestored`.
+    if (!widthRestored) return;
+    try {
       window.localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
     } catch {
       // Storage unavailable: the width simply is not remembered.
     }
-  }, [sidebarWidth]);
+  }, [sidebarWidth, widthRestored]);
 
   // A signed-out officer is sent to the sign-in page rather than shown a second
   // one here. This used to render its own "Sign in to continue" panel with a
