@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/pagination";
 import { keepPreviousData } from "@tanstack/react-query";
 import { trpc } from "@/lib/trpc";
+import { formatDateOnly } from "@/lib/dateInput";
 import { can } from "@shared/access";
 import {
   matterTypeValues,
@@ -450,7 +451,7 @@ export default function CaseRegister() {
                         )}
                       </DenseCell>
                       <NumCell className="whitespace-nowrap text-slate-600">
-                        {formatDate(item.dateReceived)}
+                        {formatDateOnly(item.dateReceived)}
                       </NumCell>
                       <NumCell
                         className={
@@ -467,7 +468,7 @@ export default function CaseRegister() {
                                 aria-hidden
                               />
                             ) : null}
-                            {formatDate(item.dueDate)}
+                            {formatDateOnly(item.dueDate)}
                           </>
                         ) : (
                           <span className="text-slate-400">—</span>
@@ -585,13 +586,4 @@ function FilterSelect({
       </select>
     </label>
   );
-}
-
-function formatDate(value: Date | string | null | undefined) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }

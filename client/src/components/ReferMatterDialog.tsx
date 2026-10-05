@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { parseDateInput } from "@/lib/dateInput";
 import { invalidateMatterWrites } from "@/lib/queryInvalidation";
 import { cn } from "@/lib/utils";
 import {
@@ -59,9 +60,7 @@ export function ReferMatterDialog({
 }) {
   const utils = trpc.useUtils();
 
-  const [destination, setDestination] = useState(
-    defaultSectionFor(matterType)
-  );
+  const [destination, setDestination] = useState(defaultSectionFor(matterType));
   const [criteria, setCriteria] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [responseDueDate, setResponseDueDate] = useState("");
@@ -76,7 +75,8 @@ export function ReferMatterDialog({
   // officer picked, and the form says so rather than silently overwriting the
   // choice and leaving the officer wondering why their selection moved.
   useEffect(() => {
-    if (legal && destination !== "Legal Section") setDestination("Legal Section");
+    if (legal && destination !== "Legal Section")
+      setDestination("Legal Section");
   }, [legal, destination]);
 
   const refer = trpc.caseManagement.refer.useMutation({
@@ -115,7 +115,8 @@ export function ReferMatterDialog({
         "Select at least one reason. The officer must record the trigger that took the matter outside their authority.";
     }
     if (reason.trim().length < 8) {
-      next.reason = "Describe the matter being referred (at least 8 characters).";
+      next.reason =
+        "Describe the matter being referred (at least 8 characters).";
     }
     if (!responseDueDate) {
       // No referred matter should remain without follow-up.
@@ -142,7 +143,14 @@ export function ReferMatterDialog({
       destination,
       reason: reason.trim(),
       criteria,
-      ...(responseDueDate ? { responseDueDate: new Date(responseDueDate) } : {}),
+      // `parseDateInput` rather than `new Date(...)`, which happens to agree with it
+      // today — both read `YYYY-MM-DD` as UTC midnight, the same reading the
+      // server's `z.coerce.date()` applies. Naming it says the deadline is a
+      // calendar date rather than an instant, and keeps the single place that
+      // decides what a calendar date means.
+      ...(responseDueDate
+        ? { responseDueDate: parseDateInput(responseDueDate) ?? undefined }
+        : {}),
       ...(directorNotifiedName.trim()
         ? { directorNotifiedName: directorNotifiedName.trim() }
         : {}),
@@ -258,8 +266,8 @@ export function ReferMatterDialog({
               </p>
               <p className="mt-1 text-xs leading-5 text-rose-800">
                 Provincial officers must not give their own legal opinions. The
-                Director, Provincial Matters, is notified before the matter leaves
-                the province.
+                Director, Provincial Matters, is notified before the matter
+                leaves the province.
               </p>
               <div className="mt-2.5">
                 <Field

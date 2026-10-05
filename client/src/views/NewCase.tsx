@@ -7,11 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { parseDateInput, todayInputValue } from "@/lib/dateInput";
 import { invalidateMatterWrites } from "@/lib/queryInvalidation";
 import { cn } from "@/lib/utils";
 import { can, refusalFor } from "@shared/access";
 import { GOLDEN_RULE_PARTS } from "@shared/delegation";
-import { defaultSectionFor, matterTypeValues, provinceValues } from "@shared/matters";
+import {
+  defaultSectionFor,
+  matterTypeValues,
+  provinceValues,
+} from "@shared/matters";
 import { ShieldAlert, FilePlus2, ArrowLeft, Scale } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -29,9 +34,14 @@ import { toast } from "sonner";
  *
  * Two fields are worth a note. The due date is not optional bookkeeping: it
  * turns a matter with no deadline into one that can sit with an officer
- * indefinitely, so the form asks for it up front and says why. The action
- * required is where "no registered matter without an assigned action" is
- * satisfied, which is why the field carries that requirement with it.
+ * indefinitely. It was documented here as required while the validation only ran
+ * `if (dueDate && …)` and the field carried no `required`, so a matter could be
+ * registered with no deadline at all — and a matter with no deadline is invisible
+ * to every signal that depends on one: `dashboard.counts.delayMatters`, the
+ * register's overdue filter and `getGoldenRuleCompliance`'s referral follow-up all
+ * require a `dueDate`. It is now refused without one. The action required is
+ * where "no registered matter without an assigned action" is satisfied, which is
+ * why the field carries that requirement with it.
  */
 
 type Errors = Partial<
@@ -51,7 +61,7 @@ export default function NewCase() {
   const utils = trpc.useUtils();
   const { data: user } = trpc.auth.me.useQuery();
 
-  const [dateReceived, setDateReceived] = useState(today());
+  const [dateReceived, setDateReceived] = useState(todayInputValue());
   const [province, setProvince] = useState("");
   const [teacherName, setTeacherName] = useState("");
   const [employeeReference, setEmployeeReference] = useState("");
@@ -95,14 +105,26 @@ export default function NewCase() {
     event.preventDefault();
     const next: Errors = {};
 
-    if (!dateReceived) next.dateReceived = "Record the date the matter was received.";
-    if (!province) next.province = "Choose the province the matter was received in.";
-    if (teacherName.trim().length < 2) next.teacherName = "Record the teacher's name.";
+    if (!dateReceived)
+      next.dateReceived = "Record the date the matter was received.";
+    if (!dueDate) {
+      next.dueDate =
+        "A registered matter needs a deadline. Without one it cannot appear in the delay or overdue figures, which is what this field exists to prevent.";
+    }
+    if (!province)
+      next.province = "Choose the province the matter was received in.";
+    if (teacherName.trim().length < 2)
+      next.teacherName = "Record the teacher's name.";
     if (!matterType) next.matterType = "Choose the class of matter.";
     if (matterSummary.trim().length < 8) {
       next.matterSummary = "Summarise the matter in a sentence or two.";
     }
-    if (dueDate && new Date(dueDate) < new Date(dateReceived || Date.now())) {
+    if (
+      dueDate &&
+      dateReceived &&
+      (parseDateInput(dueDate)?.getTime() ?? 0) <
+        (parseDateInput(dateReceived)?.getTime() ?? 0)
+    ) {
       next.dueDate = "The due date cannot be before the date received.";
     }
 
@@ -110,7 +132,12 @@ export default function NewCase() {
     if (Object.keys(next).length) return;
 
     create.mutate({
-      dateReceived: new Date(dateReceived),
+      // `parseDateInput` rather than `new Date(...)`. The two agree today — a
+      // date-only ISO string is UTC midnight by specification, which is also what
+      // the server's `z.coerce.date()` produces — but the shared helper says
+      // plainly that this is a calendar date, and refuses a string that is not one
+      // rather than producing an Invalid Date that reaches the server.
+      dateReceived: parseDateInput(dateReceived) ?? new Date(),
       province: province as (typeof provinceValues)[number],
       teacherName: teacherName.trim(),
       ...(employeeReference.trim()
@@ -121,8 +148,10 @@ export default function NewCase() {
       ...(assignedOfficerName.trim()
         ? { assignedOfficerName: assignedOfficerName.trim() }
         : {}),
-      ...(actionRequired.trim() ? { actionRequired: actionRequired.trim() } : {}),
-      ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
+      ...(actionRequired.trim()
+        ? { actionRequired: actionRequired.trim() }
+        : {}),
+      ...(dueDate ? { dueDate: parseDateInput(dueDate) ?? undefined } : {}),
       priority,
     });
   };
@@ -145,7 +174,10 @@ export default function NewCase() {
           }
         />
 
-        <form onSubmit={submit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <form
+          onSubmit={submit}
+          className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start"
+        >
           <div className="space-y-5">
             <CardPanel
               title="The teacher"
@@ -164,7 +196,9 @@ export default function NewCase() {
                     type="date"
                     value={dateReceived}
                     onChange={event => setDateReceived(event.target.value)}
-                    className={errors.dateReceived ? "border-red-400" : undefined}
+                    className={
+                      errors.dateReceived ? "border-red-400" : undefined
+                    }
                   />
                 </Field>
                 <Field
@@ -191,14 +225,20 @@ export default function NewCase() {
                     ))}
                   </select>
                 </Field>
-                <Field label="Teacher's name" required error={errors.teacherName}>
+                <Field
+                  label="Teacher's name"
+                  required
+                  error={errors.teacherName}
+                >
                   <Input
                     id="teacher-name"
                     name="teacherName"
                     value={teacherName}
                     onChange={event => setTeacherName(event.target.value)}
                     placeholder="As it appears on the teacher's record"
-                    className={errors.teacherName ? "border-red-400" : undefined}
+                    className={
+                      errors.teacherName ? "border-red-400" : undefined
+                    }
                   />
                 </Field>
                 <Field
@@ -284,7 +324,9 @@ export default function NewCase() {
                     onChange={event => setMatterSummary(event.target.value)}
                     rows={5}
                     placeholder="The teacher writes that…"
-                    className={errors.matterSummary ? "border-red-400" : undefined}
+                    className={
+                      errors.matterSummary ? "border-red-400" : undefined
+                    }
                   />
                 </Field>
               </div>
@@ -303,12 +345,15 @@ export default function NewCase() {
                     id="assigned-officer"
                     name="assignedOfficerName"
                     value={assignedOfficerName}
-                    onChange={event => setAssignedOfficerName(event.target.value)}
+                    onChange={event =>
+                      setAssignedOfficerName(event.target.value)
+                    }
                     placeholder="Defaults to you if left blank"
                   />
                 </Field>
                 <Field
                   label="Due date"
+                  required
                   error={errors.dueDate}
                   hint="A matter should not remain indefinitely with an officer."
                 >
@@ -359,7 +404,10 @@ export default function NewCase() {
               </p>
               <ul className="mt-3 space-y-2">
                 {GOLDEN_RULE_PARTS.map(part => (
-                  <li key={part.key} className="flex gap-2 text-xs text-slate-700">
+                  <li
+                    key={part.key}
+                    className="flex gap-2 text-xs text-slate-700"
+                  >
                     <span aria-hidden className="text-teal-600">
                       •
                     </span>
@@ -372,7 +420,9 @@ export default function NewCase() {
             <CardPanel title="What happens next">
               <p className="text-xs leading-5 text-slate-600">
                 The matter is registered at{" "}
-                <span className="font-medium text-slate-800">Newly received</span>{" "}
+                <span className="font-medium text-slate-800">
+                  Newly received
+                </span>{" "}
                 and given a case number in the form{" "}
                 <span className="font-mono text-[11px] text-slate-700">
                   PM/&lt;province&gt;/&lt;year&gt;/00001
@@ -384,9 +434,9 @@ export default function NewCase() {
                 <span className="font-medium text-slate-800">
                   Verification required
                 </span>{" "}
-                once an officer is recorded against it, and from there the matter
-                is investigated, referred to a National Section if it falls
-                outside the officer's authority, and decided by the
+                once an officer is recorded against it, and from there the
+                matter is investigated, referred to a National Section if it
+                falls outside the officer's authority, and decided by the
                 Commission.
               </p>
             </CardPanel>
@@ -398,9 +448,9 @@ export default function NewCase() {
                   <p className="text-sm font-semibold">Legal matter</p>
                 </div>
                 <p className="mt-1.5 text-xs leading-5 text-rose-800">
-                  A legal matter takes a distinct path, and provincial
-                  officers must not give their own legal opinions. The Director
-                  must be notified before it leaves the province.
+                  A legal matter takes a distinct path, and provincial officers
+                  must not give their own legal opinions. The Director must be
+                  notified before it leaves the province.
                 </p>
               </div>
             ) : null}
@@ -441,7 +491,11 @@ function Field({
   );
 }
 
-function DeniedNotice({ role }: { role: NonNullable<Parameters<typeof refusalFor>[0]> }) {
+function DeniedNotice({
+  role,
+}: {
+  role: NonNullable<Parameters<typeof refusalFor>[0]>;
+}) {
   return (
     <div className="rounded-lg border border-rose-200 bg-rose-50/40 px-6 py-10 text-center">
       <ShieldAlert className="mx-auto h-10 w-10 text-rose-600" />
@@ -456,12 +510,4 @@ function DeniedNotice({ role }: { role: NonNullable<Parameters<typeof refusalFor
       </Button>
     </div>
   );
-}
-
-/** Today as `yyyy-mm-dd`, in local time rather than UTC. */
-function today() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate()
-  ).padStart(2, "0")}`;
 }

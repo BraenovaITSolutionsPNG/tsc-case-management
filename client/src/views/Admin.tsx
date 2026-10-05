@@ -50,6 +50,7 @@ import {
   offsetFor,
   pageCount,
 } from "@shared/pagination";
+import { formatDateOnly } from "@/lib/dateInput";
 import { cn } from "@/lib/utils";
 import {
   STATUS_CLASSES,
@@ -139,15 +140,6 @@ function formatDateTime(value?: Date | string | null) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  });
-}
-
-function formatDate(value?: Date | string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("en-AU", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
   });
 }
 
@@ -1098,7 +1090,7 @@ function OversightTab() {
                           : "text-slate-600"
                       }
                     >
-                      {formatDate(item.dueDate)}
+                      {formatDateOnly(item.dueDate, { padDay: true })}
                     </span>
                   </DenseCell>
                   <DenseCell className="text-slate-600">
@@ -1107,6 +1099,15 @@ function OversightTab() {
                   <DenseCell className="align-top">
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <Select
+                        // Controlled, like the status picker beside it. Without
+                        // a value this ran uncontrolled, so it sat on its
+                        // "Reassign" placeholder even when the row's Officer
+                        // column showed an officer — and after a reassignment
+                        // refetched, or a change made in another tab, it kept
+                        // showing the stale name with no way to read the current
+                        // one. Empty string is what shows the placeholder, which
+                        // is the right reading for an unassigned matter.
+                        value={item.assignedOfficerName ?? ""}
                         disabled={reassign.isPending}
                         onValueChange={value =>
                           reassign.mutate({
