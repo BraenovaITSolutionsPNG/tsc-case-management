@@ -115,7 +115,15 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider defaultTheme="light">
+        {/*
+          `switchable`, so this provider owns the theme: it restores the stored
+          choice on mount and writes it back on every change. Without it the
+          provider kept `defaultTheme` and its effect removed the `dark` class
+          on every mount, so the choice `Settings` saved could never survive a
+          reload — the setting screen said "Light" while `localStorage` still
+          held `"dark"`.
+        */}
+        <ThemeProvider defaultTheme="light" switchable>
           <TooltipProvider>
             <Toaster />
             {/*

@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
+import { beginSignOut } from "@/lib/postSignIn";
 import { can, capabilitiesFor, capabilityLabel } from "@shared/access";
+import { useTheme } from "@/contexts/ThemeContext";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS, ROLE_TITLES } from "@shared/roles";
 import {
   GOLDEN_RULE_PARTS,
@@ -19,8 +21,6 @@ import {
 import { STATUS_LABELS, STATUS_VALUES } from "@shared/statuses";
 import { LogOut, Monitor, Moon, ShieldCheck, Sun, UserCog } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { toast } from "sonner";
 
 /**
@@ -42,15 +42,32 @@ import { toast } from "sonner";
  */
 
 export default function Settings() {
-  const router = useRouter();
   const utils = trpc.useUtils();
   const me = trpc.auth.me.useQuery();
   const logout = trpc.auth.logout.useMutation({
     onSuccess: () => {
       utils.auth.me.setData(undefined, null);
-      router.push("/login");
+      // A full document load rather than `router.push`. `router.push` swapped the
+      // screen inside the already-mounted app, so the server never resolved the
+      // session on first paint and the officer watched a signed-out shell render
+      // over the screen they had just left before it corrected itself. This is
+      // the same navigation `useAuth` performs, and the reason for it is stated
+      // there.
+      window.location.assign("/login");
     },
   });
+
+  /**
+   * Raised before the request rather than after it, as `useAuth.logout` does:
+   * sign-out ends with the document going away, so the platform's loader has to
+   * already be showing. Without this the primary action on this screen changed
+   * the page with no takeover at all, which is the one place an officer is most
+   * likely to be signing out — a shared machine.
+   */
+  const signOut = () => {
+    beginSignOut();
+    logout.mutate();
+  };
 
   if (me.isLoading) {
     return (
@@ -191,7 +208,7 @@ export default function Settings() {
                 variant="outline"
                 className="mt-4"
                 disabled={logout.isPending}
-                onClick={() => logout.mutate()}
+                onClick={signOut}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign out
@@ -254,18 +271,15 @@ export default function Settings() {
  * sharing a machine in a provincial office are not fighting over it.
  */
 function AppearancePanel() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  // Read from the provider rather than keeping a second copy. The panel used to
+  // hold its own `useState("light")`, set the document class itself and write
+  // `localStorage` — while the provider, which owns that class, ignored the
+  // stored value and reset to light on every mount. The officer's choice looked
+  // like it took, and did not survive a reload.
+  const { theme, setThemeValue } = useTheme();
 
   const choose = (next: "light" | "dark") => {
-    setTheme(next);
-    // The document class is what the stylesheet keys off, so it is set here
-    // rather than through a provider, keeping the choice in one place.
-    document.documentElement.classList.toggle("dark", next === "dark");
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      // A browser with storage disabled still gets the theme for this session.
-    }
+    setThemeValue?.(next);
   };
 
   return (
