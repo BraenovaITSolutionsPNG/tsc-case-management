@@ -161,7 +161,11 @@ database/schema-apply.sql
 # assets/brand/app-logo.png, and its crest.png is byte-identical to the emblem
 # in assets/logos-img.
 #
-# What the design became is committed: client/src/components/BootLoader.tsx and
-# the `boot-` rules in client/src/index.css. Regenerate this folder from Figma
-# if the design needs revisiting; nothing in the application reads from it.
+# What the design became was committed as the branded post-sign-in
+# screen (BootLoader.tsx and the `boot-` rules in index.css), which
+# has since been removed: a branded takeover followed by a second
+# loading state is two loaders in a row, and the sign-in screen now
+# covers the handover itself. Regenerate this folder from Figma if
+# the design needs revisiting; nothing in the application reads
+# from it.
 assets/Logo_Loader/

@@ -1,4 +1,4 @@
-import { beginSignOut } from "@/lib/postSignIn";
+import { beginSignOut } from "@/lib/signOut";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";

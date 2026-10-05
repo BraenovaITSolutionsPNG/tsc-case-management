@@ -254,6 +254,12 @@ function LoginForm() {
   // The refusal screen's one button, disabled while it runs so a second press
   // cannot start a second sign-out behind the first.
   const [signingOut, setSigningOut] = useState(false);
+  // Set once the credential has been accepted and the navigation to the
+  // platform is under way. This screen stays mounted until that
+  // navigation commits, and the loader it draws is what covers the
+  // wait — see the branch below. Nothing clears it, because nothing
+  // needs to: the navigation committing is what unmounts the screen.
+  const [handover, setHandover] = useState(false);
 
   // The remembered address is read after mount, never during the first render:
   // the server has no `localStorage`, so rendering from it there would produce
@@ -312,21 +318,26 @@ function LoginForm() {
       // behaviour, chosen so the server would resolve the session on the
       // first paint — which the landing screen still does, being a Server
       // Component — but it bought that at the cost of tearing the whole
-      // document down, and a push keeps the shell the officer is already
-      // looking at.
+      // document down, and a push keeps this screen mounted until the
+      // platform's first paint commits.
       //
-      // No `markPostSignIn()` here any more. It used to announce the
-      // handover so the branded logo screen came up over the wait for the
-      // dashboard. That screen was disabled on 2026-10-05: it was bounded
-      // by an eight-second ceiling, so on a slow round trip it dissolved
-      // before the platform had arrived and the officer was shown a second
-      // loading state directly after the logo — two loaders in a row, the
-      // exact sequence the screen was built to prevent. The loader App
-      // Router draws for the navigation has no ceiling of its own, so it
-      // now covers the whole wait, and the overview arrives with its
-      // figures already in the dehydrated cache rather than skeleton-first.
-      // To bring the branded screen back, call `markPostSignIn()` again
-      // before the navigation.
+      // That is also what covers the wait. The overview is a Server
+      // Component and takes seconds to arrive on a cold deployment, and
+      // the officer has just proved who they are — the one navigation in
+      // the platform where a full-screen loader is the right answer,
+      // because there is nothing else on screen that could say the
+      // sign-in worked. This screen draws it until the navigation
+      // commits and unmounts it, so the loader cannot outlive the wait
+      // it belongs to, and no other screen ever needs to know a handover
+      // is under way. Every other move in the platform says nothing at
+      // all, which is the point: a takeover on a tab change is the most
+      // disruptive thing an interface can do, and it is what made the
+      // tabs read as slow.
+      //
+      // A navigation that never commits would leave this up; that is a
+      // broken platform rather than a slow one, and the officer can
+      // always reload.
+      setHandover(true);
       router.push(LANDING_PATH);
     } catch (error) {
       // Logged before it is replaced by a generic sentence, because this branch
@@ -352,6 +363,15 @@ function LoginForm() {
 
   if (loading || isAuthenticated) {
     return <PageLoader label="Checking your session" />;
+  }
+
+  // The handover to the platform, drawn by this screen for the whole of
+  // the wait — the navigation keeps the sign-in form mounted until the
+  // overview's first paint commits, and this replaces the form the
+  // moment the credential is accepted, so the officer is never looking
+  // at a form that has already done its job.
+  if (handover) {
+    return <PageLoader label="Preparing your overview" />;
   }
 
   // Signed in with Supabase, and refused by us.
