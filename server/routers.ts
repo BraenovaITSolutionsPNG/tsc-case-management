@@ -596,6 +596,85 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, cookieOptions);
       return { success: true } as const;
     }),
+
+    /**
+     * Where this account is signed in.
+     *
+     * `auth.logout` ends whichever session made the request, which leaves an
+     * officer who is also signed in on a shared or borrowed machine no way out of
+     * that one. This is the other half: it is a `protectedProcedure` rather than an
+     * administrator one, because managing your own sessions is not an
+     * administrative act — and the user id comes from `ctx`, never from the
+     * client, so there is no input here that could ask about anybody else.
+     */
+    sessions: protectedProcedure.query(async ({ ctx }) => {
+      const { canManageSessions, listSessions } = await import(
+        "./_core/supabaseSessions"
+      );
+
+      if (!canManageSessions()) {
+        return { available: false as const, sessions: [] as never[] };
+      }
+
+      return {
+        available: true as const,
+        // False rather than an error: a deployment without the service role can
+        // still use the platform perfectly well, and a panel that says so is more
+        // use than one that throws.
+        currentKnown: ctx.user.sessionId !== null,
+        sessions: await listSessions(ctx.user.authUserId, ctx.user.sessionId),
+      };
+    }),
+
+    /**
+     * End every session except the one making the request.
+     *
+     * The one an officer reaches for after lending a laptop, or after suspecting a
+     * session they do not recognise on the device list.
+     */
+    revokeOtherSessions: protectedProcedure.mutation(async ({ ctx }) => {
+      const { revokeOtherSessions } = await import("./_core/supabaseSessions");
+
+      // Ends the session cookie the browser is carrying too, or the officer's own
+      // device would keep presenting a session Supabase no longer honours and fail
+      // every request afterwards. Same belt-and-braces shape as `auth.logout`.
+      ctx.res.clearCookie(COOKIE_NAME, {
+        ...getSessionCookieOptions(ctx.req),
+        maxAge: -1,
+      });
+
+      return {
+        ended: await revokeOtherSessions(
+          ctx.user.authUserId,
+          ctx.user.sessionId
+        ),
+      };
+    }),
+
+    /**
+     * End one named session, which must not be this one.
+     *
+     * Refusing the caller's own session is deliberate and not a technicality:
+     * ending it does not sign this browser out. It invalidates the session in
+     * Supabase while the cookie stays here, so the officer is left holding a dead
+     * session that fails every request until they clear cookies by hand. Sign out
+     * is the procedure for that, and it does it properly.
+     */
+    revokeSession: protectedProcedure
+      .input(z.object({ sessionId: requiredText("Session") }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.sessionId === ctx.user.sessionId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "That is the device you are using. Use Sign out to end this session properly.",
+          });
+        }
+
+        const { revokeSession } = await import("./_core/supabaseSessions");
+        await revokeSession(ctx.user.authUserId, input.sessionId);
+        return { ok: true };
+      }),
   }),
   caseManagement: router({
     dashboard: protectedProcedure.query(() => getDashboardData()),

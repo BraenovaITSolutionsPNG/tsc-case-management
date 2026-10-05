@@ -136,7 +136,7 @@ export default function DashboardLayout({
   // write effect cannot observe the flag until a render has happened.
   const [widthRestored, setWidthRestored] = useState(false);
 
-  const { loading, user } = useAuth();
+  const { loading, user, signingOut } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -174,7 +174,12 @@ export default function DashboardLayout({
     router.replace("/login");
   }, [loading, user, router]);
 
-  if (loading) {
+  if (loading && !signingOut) {
+    // Not while signing out. `loading` folds the sign-out mutation in, and the
+    // skeleton it would show is a page of grey boxes for a page the officer has
+    // just asked to leave — which is exactly what `signingOut` exists to let a
+    // screen distinguish, and exactly the thing the platform's own loader,
+    // already covering the viewport at this point, is there to replace.
     return <DashboardLayoutSkeleton />;
   }
 

@@ -33,6 +33,11 @@ vi.mock("./db", () => db);
 const serverClient = {
   auth: {
     getUser: vi.fn(),
+    // `authenticateSupabaseRequest` reads the session as well, for the
+    // session id that tells one signed-in device from another. It reads
+    // the cookie this process already has, so a null session is the
+    // honest answer for these scenarios: none of them carries a token.
+    getSession: vi.fn(),
   },
 };
 
@@ -53,6 +58,9 @@ function scenario(options: {
   serverClient.auth.getUser.mockResolvedValue({
     data: { user: { id: AUTH_USER_ID } },
     error: null,
+  });
+  serverClient.auth.getSession.mockResolvedValue({
+    data: { session: null },
   });
 }
 

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
-import { beginSignOut } from "@/lib/postSignIn";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { can, capabilitiesFor, capabilityLabel } from "@shared/access";
 import { useTheme } from "@/contexts/ThemeContext";
 import { ROLE_DESCRIPTIONS, ROLE_LABELS, ROLE_TITLES } from "@shared/roles";
@@ -21,6 +21,7 @@ import {
 import { STATUS_LABELS, STATUS_VALUES } from "@shared/statuses";
 import { LogOut, Monitor, Moon, ShieldCheck, Sun, UserCog } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { toast } from "sonner";
 
 /**
@@ -42,32 +43,8 @@ import { toast } from "sonner";
  */
 
 export default function Settings() {
-  const utils = trpc.useUtils();
+  const { logout, signingOut, refresh } = useAuth();
   const me = trpc.auth.me.useQuery();
-  const logout = trpc.auth.logout.useMutation({
-    onSuccess: () => {
-      utils.auth.me.setData(undefined, null);
-      // A full document load rather than `router.push`. `router.push` swapped the
-      // screen inside the already-mounted app, so the server never resolved the
-      // session on first paint and the officer watched a signed-out shell render
-      // over the screen they had just left before it corrected itself. This is
-      // the same navigation `useAuth` performs, and the reason for it is stated
-      // there.
-      window.location.assign("/login");
-    },
-  });
-
-  /**
-   * Raised before the request rather than after it, as `useAuth.logout` does:
-   * sign-out ends with the document going away, so the platform's loader has to
-   * already be showing. Without this the primary action on this screen changed
-   * the page with no takeover at all, which is the one place an officer is most
-   * likely to be signing out — a shared machine.
-   */
-  const signOut = () => {
-    beginSignOut();
-    logout.mutate();
-  };
 
   if (me.isLoading) {
     return (
@@ -138,7 +115,7 @@ export default function Settings() {
                 avatarKey={user.avatarKey}
                 name={user.name}
                 size={64}
-                onChange={() => void utils.auth.me.invalidate()}
+                onChange={() => void refresh()}
               />
 
               <dl className="mt-5 space-y-3 text-sm">
@@ -207,13 +184,15 @@ export default function Settings() {
               <Button
                 variant="outline"
                 className="mt-4"
-                disabled={logout.isPending}
-                onClick={signOut}
+                disabled={signingOut}
+                onClick={() => void logout()}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign out
               </Button>
             </CardPanel>
+
+            <DevicesPanel />
 
             <CardPanel
               title="What your role can do"
@@ -270,6 +249,216 @@ export default function Settings() {
  * browser the officer is sitting at, not to the account, so two officers
  * sharing a machine in a provincial office are not fighting over it.
  */
+/**
+ * Where this account is signed in, and a way to end the sessions that are not
+ * this one.
+ *
+ * `Sign out` above ends whichever session the officer is using, which leaves them
+ * stuck if they are *also* signed in somewhere else — a laptop lent to a colleague,
+ * a phone left in a drawer, a session on a machine they no longer have. An officer
+ * who suspects that has no way to deal with it, because nothing in the platform
+ * lists their sessions and nothing ends one but their own.
+ *
+ * So this lists them. The one in use is marked and cannot be ended from here:
+ * doing so would invalidate the session in Supabase while the browser keeps the
+ * cookie, leaving an officer holding a dead session that fails every request. That
+ * is what Sign out is for.
+ */
+function DevicesPanel() {
+  const utils = trpc.useUtils();
+  const [confirmingAll, setConfirmingAll] = useState(false);
+
+  const sessions = trpc.auth.sessions.useQuery(undefined, {
+    // Devices change slowly and only when the officer does something. A stale
+    // list is better than one that refetches on every window focus, and
+    // `refetchOnWindowFocus` is off platform-wide for the same reason.
+    staleTime: 30_000,
+  });
+
+  const revokeOther = trpc.auth.revokeOtherSessions.useMutation({
+    onSuccess: result => {
+      setConfirmingAll(false);
+      toast.success(
+        result.ended === 0
+          ? "There were no other devices signed in."
+          : `Signed out ${result.ended} other ${
+              result.ended === 1 ? "device" : "devices"
+            }.`
+      );
+      void utils.auth.sessions.invalidate();
+    },
+    onError: cause => toast.error(cause.message),
+  });
+
+  const revokeOne = trpc.auth.revokeSession.useMutation({
+    onSuccess: () => {
+      toast.success("That device has been signed out.");
+      void utils.auth.sessions.invalidate();
+    },
+    onError: cause => toast.error(cause.message),
+  });
+
+  const data = sessions.data;
+
+  if (sessions.isLoading) {
+    return (
+      <CardPanel title="Where you're signed in">
+        <Skeleton className="h-24 rounded-lg" />
+      </CardPanel>
+    );
+  }
+
+  if (!data?.available) {
+    return (
+      <CardPanel
+        title="Where you're signed in"
+        description="This deployment cannot manage signed-in devices."
+      >
+        <p className="text-sm text-slate-600">
+          Sign out still ends this device. To end a session on another device,
+          ask the platform administrator.
+        </p>
+      </CardPanel>
+    );
+  }
+
+  const others = data.sessions.filter(session => !session.current);
+  const current = data.sessions.find(session => session.current);
+
+  return (
+    <CardPanel
+      title="Where you're signed in"
+      description="Every browser currently holding a session for this account."
+    >
+      {current ? (
+        <DeviceRow session={current} badge="This device" />
+      ) : (
+        <p className="text-sm text-slate-600">
+          {data.currentKnown
+            ? "This device is not in the list, which usually means the list is out of date."
+            : "This deployment cannot tell your devices apart, so only Sign out can end one."}
+        </p>
+      )}
+
+      {others.length ? (
+        <>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Other devices
+          </p>
+          <ul className="mt-2 space-y-2">
+            {others.map(session => (
+              <li key={session.id}>
+                <DeviceRow
+                  session={session}
+                  action={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={revokeOne.isPending}
+                      onClick={() =>
+                        revokeOne.mutate({ sessionId: session.id })
+                      }
+                    >
+                      Sign out
+                    </Button>
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-slate-600">
+          No other device is signed in.
+        </p>
+      )}
+
+      {/*
+       * Two steps, deliberately. This ends sessions on machines the officer is
+       * not looking at, which is not something to do on a single click that
+       * looks like saving a preference — and the failure mode if it were is
+       * somebody else being signed out of the platform mid-task with no way to
+       * tell why.
+       */}
+      {others.length > 0 ? (
+        <div className="mt-4">
+          {confirmingAll ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+              <p className="text-sm text-slate-800">
+                Sign out {others.length} other{" "}
+                {others.length === 1 ? "device" : "devices"}? Anyone using{" "}
+                {others.length === 1 ? "it" : "them"} will be returned to the
+                sign-in screen.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={revokeOther.isPending}
+                  onClick={() => revokeOther.mutate()}
+                >
+                  {revokeOther.isPending
+                    ? "Signing out…"
+                    : "Yes, sign them out"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setConfirmingAll(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" onClick={() => setConfirmingAll(true)}>
+              Sign out all other devices
+            </Button>
+          )}
+        </div>
+      ) : null}
+    </CardPanel>
+  );
+}
+
+function DeviceRow({
+  session,
+  badge,
+  action,
+}: {
+  session: {
+    device: string;
+    ipAddress: string | null;
+    lastActiveAt: Date | string | null;
+    signedInAt: Date | string | null;
+  };
+  badge?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-slate-200 p-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-slate-900">
+          {session.device}
+          {badge ? (
+            <span className="ml-2 rounded bg-teal-50 px-1.5 py-0.5 text-xs font-medium text-teal-800">
+              {badge}
+            </span>
+          ) : null}
+        </p>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {session.ipAddress ? `${session.ipAddress} · ` : ""}
+          {session.lastActiveAt
+            ? `last active ${formatDateTime(session.lastActiveAt)}`
+            : session.signedInAt
+              ? `signed in ${formatDateTime(session.signedInAt)}`
+              : "activity unknown"}
+        </p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
 function AppearancePanel() {
   // Read from the provider rather than keeping a second copy. The panel used to
   // hold its own `useState("light")`, set the document class itself and write

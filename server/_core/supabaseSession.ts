@@ -24,6 +24,16 @@ import { createServerClient } from "./supabaseAuth";
  */
 export type AuthenticatedUser = User & {
   authUserId: string;
+  /**
+   * The Supabase session this request came in on, or null if it could not be read.
+   *
+   * Needed to tell one signed-in device from another: the user id is identical on
+   * all of them, so "everything except this one" has nothing to exclude without
+   * it. Null is a real answer rather than an omission — a deployment whose tokens
+   * carry no `session_id` still signs in, and the device list degrades to "all of
+   * yours" rather than breaking.
+   */
+  sessionId: string | null;
 };
 
 /**
@@ -89,7 +99,14 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
   );
 
   const supabase = await createServerClient();
-  const { data, error } = await supabase.auth.getUser();
+  // Both, not just `getUser`. The access token is only read for the session id it
+  // carries, which is what lets an officer be told which of their own sessions is
+  // the one they are using — see `sessionId` below. `getSession` reads the cookie
+  // this process already has rather than the network, so it costs nothing here.
+  const [{ data, error }, { data: sessionData }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
 
   // First, because everything below this line is a statement about somebody who
   // presented a session, and "no session is not an error" is true whether or not
@@ -143,5 +160,42 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
     await touchLastSignedIn(user.id, new Date());
   }
 
-  return { ...user, authUserId: data.user.id } as AuthenticatedUser;
+  return {
+    ...user,
+    authUserId: data.user.id,
+    sessionId: sessionIdFromAccessToken(sessionData.session?.access_token),
+  } as AuthenticatedUser;
+}
+
+/**
+ * The session id out of an access token, or null.
+ *
+ * GoTrue puts a `session_id` claim in every access token, and that claim is the
+ * only thing that distinguishes one signed-in device from another: the officer's
+ * user id is the same on all of them. So this is what lets "sign out my other
+ * devices" know which sessions to leave alone — and getting it wrong in the
+ * permissive direction would sign the officer out of the device they are sitting
+ * at, which is why an unreadable token yields null rather than a guess.
+ *
+ * The token's *signature* is not checked here and does not need to be: it was
+ * verified by `getUser` a few lines above, and this only reads a claim out of
+ * already-trusted bytes to name a session. Verifying it again would need
+ * `JWT_SECRET`, which this application deliberately does not hold.
+ */
+function sessionIdFromAccessToken(
+  accessToken: string | undefined
+): string | null {
+  if (!accessToken) return null;
+  const [, payload] = accessToken.split(".");
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    ) as { session_id?: unknown };
+    return typeof claims.session_id === "string" && claims.session_id
+      ? claims.session_id
+      : null;
+  } catch {
+    return null;
+  }
 }

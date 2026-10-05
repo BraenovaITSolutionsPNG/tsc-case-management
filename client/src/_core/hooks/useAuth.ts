@@ -23,30 +23,50 @@ export function useAuth(options?: UseAuthOptions) {
   });
 
   const logout = useCallback(async () => {
-    // Raised before the request, not after. Sign-out ends in a full document
-    // load of the sign-in screen, so nothing observable survives it — the only
-    // way to cover the gap is to say "this is happening" to something that is
-    // about to be destroyed.
+    // Raised before the request, not after. Sign-out ends with the document
+    // being replaced, so nothing observable survives it — the only way to cover
+    // the gap is to say "this is happening" to something that is about to be
+    // destroyed.
     beginSignOut();
     try {
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
       if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
+        !(error instanceof TRPCClientError) ||
+        error.data?.code !== "UNAUTHORIZED"
       ) {
-        return;
+        // Logged rather than raised. Raising it here propagated out of an
+        // `onClick` React never awaits, so it became an unhandled rejection and
+        // nothing navigated — leaving the loader this function had just raised
+        // covering a page the officer could no longer act on. The navigation
+        // below runs either way, so the officer is never left holding a button
+        // that appears to do nothing.
+        console.error("[Auth] sign-out did not complete cleanly:", error);
       }
-      throw error;
     } finally {
       // Cleared whichever way the mutation went. An officer who pressed "sign
       // out" on a machine that must be left signed in has been told this
       // succeeded, so the cached identity is dropped even when the request that
       // would have ended the session failed.
       utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
+
+      // No `invalidate()` here any more. It used to refetch `auth.me` to prove the
+      // session was gone, which is work whose only consumer is the document load
+      // immediately below — so all it could do was delay the thing the officer is
+      // waiting for. Setting the cache to null is what makes the brief moment
+      // before the document is replaced agree that they are signed out.
+
+      // A full document load, which is what the loader raised above is counting
+      // on. `PlatformPageLoader` lives in the root layout and its only dismissal
+      // is a post-sign-in handover, so a client-side route away from here leaves
+      // it up: the officer got a full-screen branded loader over the sign-in
+      // form, and since the only way to lower it is to sign in again, they could
+      // not. Replacing the document destroys the loader with everything else,
+      // which is also why the session is re-resolved server-side on the first
+      // paint rather than the app rendering a signed-out shell.
+      window.location.assign(redirectPath ?? "/login");
     }
-  }, [logoutMutation, utils]);
+  }, [logoutMutation, redirectPath, utils]);
 
   const state = useMemo(
     () => ({
