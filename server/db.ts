@@ -11,6 +11,7 @@ import {
   count,
 } from "drizzle-orm";
 import { CLOSED_STATUSES, isOpenStatus, isOverdue } from "../shared/statuses";
+import { briefNeedsDecision } from "../shared/delegation";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   caseDocuments,
@@ -725,11 +726,19 @@ async function getCaseMonitoring(allCases: Case[]) {
       assignedOfficerName: item.assignedOfficerName,
       // How long the National Section has had it, which is the follow-up clock
       // §12D tells the PA to keep.
+      //
+      // `Math.min` over the pending referrals, not `Math.max`: the wait runs from
+      // the referral that has been outstanding longest, because that is the one
+      // due to be chased. Taking the newest made a matter with two outstanding
+      // referrals report the shorter of the two waits, and the list below is
+      // sorted longest-first precisely to surface the referral that has waited
+      // longest - so the second-most-overdue referral in the office could never
+      // reach the top of its own list.
       daysWaiting: Math.max(
         0,
         Math.floor(
           (now -
-            Math.max(
+            Math.min(
               ...pendingByCase
                 .get(item.id)!
                 .map(r => new Date(r.referredAt).getTime())
@@ -752,8 +761,20 @@ async function getCaseMonitoring(allCases: Case[]) {
     }))
     .sort((a, b) => b.daysWaiting - a.daysWaiting);
 
+  // §12B.6 and §12C both turn on the same pair the server and the brief form
+  // use: `briefNeedsDecision`, which is true when the matter is flagged *or*
+  // already sitting at DEC. Filtering on `decisionRequired` alone listed neither
+  // of these two panels for a matter the Director is being asked about, while
+  // `saveBrief` refuses a brief for exactly that matter unless its two decision
+  // sections are filled in - so the PA was shown nothing to prepare and then
+  // told the brief was incomplete. `shared/delegation.ts` states the pair as the
+  // rule; it is read from there rather than restated.
   const openBriefs = open
-    .filter(item => item.decisionRequired && !item.briefIssue)
+    .filter(
+      item =>
+        briefNeedsDecision(item.decisionRequired, item.status) &&
+        !item.briefIssue
+    )
     .map(item => ({
       id: item.id,
       caseNumber: item.caseNumber,
@@ -798,9 +819,9 @@ async function getCaseMonitoring(allCases: Case[]) {
       .map(slimCase),
     /** §12B.5 Referred out and still waiting on a National Section. */
     awaitingResponse,
-    /** §12B.6 Flagged for the Director's attention. */
+    /** §12B.6 Flagged for the Director's attention, plus anything already at DEC. */
     requiringDecision: open
-      .filter(item => item.decisionRequired)
+      .filter(item => briefNeedsDecision(item.decisionRequired, item.status))
       .map(item => ({ ...slimCase(item), hasBrief: Boolean(item.briefIssue) }))
       .sort((a, b) => Number(a.hasBrief) - Number(b.hasBrief)),
     /** §12C. Matters flagged for decision with no brief prepared yet. */
@@ -818,7 +839,9 @@ async function getCaseMonitoring(allCases: Case[]) {
           allReferrals.some(r => r.caseId === item.id && r.isLegal)
       ).length,
       awaitingResponse: awaitingResponse.length,
-      requiringDecision: open.filter(item => item.decisionRequired).length,
+      requiringDecision: open.filter(item =>
+        briefNeedsDecision(item.decisionRequired, item.status)
+      ).length,
       briefsToPrepare: openBriefs.length,
     },
     openTotal: openIds.size,
@@ -944,11 +967,17 @@ function median(values: number[]) {
 /**
  * Accounts for the administration screen.
  *
- * The stored credential is deliberately reduced to a boolean before it leaves
- * the server. A `select *` here would ship password hashes to the browser, where
- * they could be read by a browser extension, captured in a proxy log, or cached
- * in client state - the hash is not a secret the platform should hand out, and
- * the UI only needs to know whether a credential exists.
+ * The row is spread whole onto the way out, and that is safe only because the
+ * stored credential is gone: Supabase holds it and never discloses it, so
+ * `passwordHash` is no longer a column (migration `0001_supabase_auth.sql`).
+ * There is therefore nothing secret to strip here — the comment this replaces
+ * described a `select *` that would have shipped password hashes, which was
+ * true of the code before Supabase and is not true of the code now. Should a
+ * credential column ever be added back, this is the place that has to project
+ * the fields explicitly instead of spreading the row.
+ *
+ * `isProvisioned` is added below rather than read from a hash's presence: the
+ * `authUserId` column is the sign-inable state.
  */
 export async function listUsers() {
   const db = await getDb();
@@ -1239,9 +1268,13 @@ export async function getUserByEmail(email: string) {
 }
 
 /**
- * Set an account's display name. Separate from the credential because the name
- * is what the party backfill matches against, and a local login created from a
- * username needs its real name set before it can be linked to any matter.
+ * Set an account's register-side label.
+ *
+ * Normalised to lower case on the way in, which is what `usernameTaken` compares
+ * against, so the same account cannot be reachable under two spellings of one
+ * name. This is not the display name — `setUserDisplayName` below is — and it is
+ * not a credential: it labels the account on the register and nothing signs in
+ * with it.
  */
 export async function setUserUsername(id: number, username: string) {
   const db = await getDb();
@@ -1481,6 +1514,50 @@ export async function listOfficers() {
     .sort();
 }
 
+/**
+ * The trailing `count` calendar months as half-open windows, oldest first.
+ *
+ * A month bucket is the calendar month, so each window starts at **midnight on
+ * the 1st** and ends at midnight on the 1st of the next month. Getting that
+ * wrong is invisible in the code and obvious in the figures: the version this
+ * replaces used `setDate(1)` without clearing the time of day, which made every
+ * window `[1st at the current time, 1st of next month at the current time)` — so
+ * every matter received or closed in the hours of the 1st before "now" fell into
+ * the *previous* month's bar, under the previous month's label. At 14:33 that is
+ * the first fourteen and a half hours of every month. This deployment runs
+ * UTC+10, so it was not theoretical.
+ *
+ * Local midnight rather than UTC, because every other month and quarter window in
+ * this file is built from local components — `getMonthlyIntake`,
+ * `getMonthlyReport` and `quarterRange` all are — and a matter received at 00:30
+ * on the 1st local has to land in the month the officer would name.
+ *
+ * Exported so the arithmetic can be asserted without a database: the loop that
+ * used to hold it was untestable, which is why it could be wrong.
+ */
+export function monthWindows(now: Date | number, count: number) {
+  const reference = new Date(now);
+  const windows: { key: string; start: Date; end: Date }[] = [];
+
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const start = new Date(reference);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(1);
+    start.setMonth(start.getMonth() - offset);
+
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+
+    windows.push({
+      key: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
+      start,
+      end,
+    });
+  }
+
+  return windows;
+}
+
 export async function getSystemStats() {
   const [allCases, allUsers, audit] = await Promise.all([
     listCases(),
@@ -1501,28 +1578,23 @@ export async function getSystemStats() {
       return acc;
     }, {});
 
-  // Matters received per month over the trailing 12 months, oldest first.
-  const monthly: { month: string; received: number; closed: number }[] = [];
-  for (let offset = 11; offset >= 0; offset--) {
-    const point = new Date(now);
-    point.setDate(1);
-    point.setMonth(point.getMonth() - offset);
-    const key = `${point.getFullYear()}-${String(point.getMonth() + 1).padStart(2, "0")}`;
-    const next = new Date(point);
-    next.setMonth(next.getMonth() + 1);
-    monthly.push({
-      month: key,
-      received: allCases.filter(item => {
-        const t = new Date(item.dateReceived).getTime();
-        return t >= point.getTime() && t < next.getTime();
-      }).length,
-      closed: allCases.filter(item => {
-        if (!item.dateClosed) return false;
-        const t = new Date(item.dateClosed).getTime();
-        return t >= point.getTime() && t < next.getTime();
-      }).length,
-    });
-  }
+  // Matters received per month over the trailing 12 months, oldest first. The
+  // windows come from `monthWindows`, which owns the boundary arithmetic and the
+  // reason it has to start at midnight.
+  const inWindow = (
+    value: Date | string | null | undefined,
+    win: { start: Date; end: Date }
+  ) => {
+    if (!value) return false;
+    const t = new Date(value).getTime();
+    return t >= win.start.getTime() && t < win.end.getTime();
+  };
+
+  const monthly = monthWindows(now, 12).map(win => ({
+    month: win.key,
+    received: allCases.filter(item => inWindow(item.dateReceived, win)).length,
+    closed: allCases.filter(item => inWindow(item.dateClosed, win)).length,
+  }));
 
   return {
     totals: {
