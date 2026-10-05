@@ -154,5 +154,13 @@ const requireRole = (minimum: Role) =>
 
 export const adminProcedure = t.procedure.use(requireRole("admin"));
 
-/** Platform oversight: user accounts, global audit trail, all matters, stats. */
+/**
+ * Platform oversight: user accounts, global audit trail, all matters, stats.
+ *
+ * Defined and exported, but the admin router does not use it: every route there
+ * is guarded by `requireCapability("platform:users" | "platform:audit" |
+ * "platform:stats")` instead, so the tier the capability belongs to is decided in
+ * `shared/access.ts` alongside the navigation item rather than here. `routers.ts`
+ * used to import this and never call it.
+ */
 export const superAdminProcedure = t.procedure.use(requireRole("super_admin"));

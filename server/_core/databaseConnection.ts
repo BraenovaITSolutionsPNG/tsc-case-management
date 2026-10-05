@@ -5,7 +5,7 @@
  * This exists because Supabase requires TLS, and a bare connection string
  * cannot carry a certificate authority — `postgresql://user:pass@host` has
  * nowhere to put a CA certificate. On top of that, Supabase assigns a port per
- * connection mode and the modes are not interchangeable: see `resolvePoolMode`.
+ * connection mode and the modes are not interchangeable: see `resolvePort`.
  *
  * Both callers need the same answer, so it is computed once here:
  *
@@ -41,7 +41,7 @@ import { readFileSync } from "node:fs";
  *
  * Five, rather than the one a screen's parallel burst wants or the ten the
  * driver defaults to. Worth being precise about what this is and is not for: it
- * was raised from three to eight and page load did not measurably change
+ * was raised from three to five and page load did not measurably change
  * (2.4s and 3.4s for six parallel queries either way), so it is here to bound
  * the connection count and to leave room for a burst — not because a larger
  * number makes a screen faster. The per-request cost this app actually pays is
@@ -198,10 +198,20 @@ export function describeTls(): string {
  *    together with a pooler that discards sessions mid-statement.
  *
  * The port is taken from the URL when it carries one, because Supabase hands out
- * all three and the developer chose between them. 6543 is the default here
- * because it is the pooler Supabase's own dashboard suggests for a deployed
- * application, and it is the only one of the three that survives a serverless
- * function creating a pool per invocation.
+ * all three and the developer chose between them. A portless URL therefore gets
+ * 5432 — the direct connection — unless `DATABASE_POOL_MODE=session` asks for
+ * 6544.
+ *
+ * This comment previously said 6543 (the transaction pooler) was the default
+ * here and that it was the only port that survives a serverless function. The
+ * code has always returned 5432 for a portless URL, `.env.example` documents the
+ * direct connection, and the migrations workflow requires a session-capable port
+ * rather than the transaction pooler, so the code is right and the sentence was
+ * describing an intent that was never implemented. It is stated here because the
+ * two are not equivalent: on a serverless deployment a portless `DATABASE_URL`
+ * opens a real backend per instance, which is the `EMAXCONN` situation the pool
+ * size above is chosen to bound. Put the pooler port in the URL, or set
+ * `DATABASE_POOL_MODE=session`.
  */
 function resolvePort(url: URL): number {
   if (url.port) return Number(url.port);

@@ -7,9 +7,13 @@ import { createServerClient } from "./supabaseAuth";
  * Two things are worth noting about what is *not* here:
  *
  *  - No `passwordHash`. The field is gone from the database schema entirely:
- *    Supabase holds the credential and never discloses it. The omission is now
- *    structural rather than a rule someone has to remember, which is why the
- *    type is declared as an omit of a schema row that no longer has the column.
+ *    Supabase holds the credential and never discloses it, so there is nothing
+ *    to omit. This used to read `Omit<User, "passwordHash">`, which was a no-op
+ *    from the moment the column was dropped — the type it named no longer had the
+ *    key — and described an omission it was not performing. The note is kept
+ *    because the omission it was guarding against is real if a credential column
+ *    is ever added back, and `User` would then have to be projected instead of
+ *    spread.
  *  - No session token, no refresh token. This process never signs, verifies or
  *    stores a credential; it asks Supabase who is calling and gets back a user.
  *
@@ -18,7 +22,7 @@ import { createServerClient } from "./supabaseAuth";
  * references must not move. The Supabase uuid is the link between the two
  * systems.
  */
-export type AuthenticatedUser = Omit<User, "passwordHash"> & {
+export type AuthenticatedUser = User & {
   authUserId: string;
 };
 

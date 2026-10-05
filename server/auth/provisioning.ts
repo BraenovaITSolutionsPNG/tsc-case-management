@@ -19,8 +19,12 @@ import { createAdminClient } from "../_core/supabaseAuth";
 import { createUser as createUserRow } from "../db";
 
 /**
- * Supabase's own floor for a password, applied here so the refusal is a clear
- * message rather than an opaque 422 from the API.
+ * This application's floor for a password, applied here so the refusal is a
+ * clear message rather than an opaque 422 from the API.
+ *
+ * It is a platform policy, not Supabase's: GoTrue's own minimum is 6. The number
+ * is stated once here and mirrored in the admin route's validation, so the floor
+ * an administrator is held to does not depend on which of the two catches them.
  *
  * Exported because the admin route's validation and this one must not drift: a
  * password the form accepts and this rejects produces an error after the
@@ -56,17 +60,35 @@ export async function provisionUser(input: ProvisionInput) {
 
   const supabase = createAdminClient();
 
-  // `listUsers` pages; 200 covers any plausible number of officers, and a
-  // silently truncated check would let a duplicate address through.
-  const { data: existing, error: listError } = await supabase.auth.admin.listUsers({
-    perPage: 200,
-  });
-  if (listError) {
-    throw new Error(`Supabase could not be read: ${listError.message}`);
+  // Read every page of identities, not just the first.
+  //
+  // `listUsers` does *not* page for you: one call returns one page and no
+  // indication that more exist. A single `perPage: 200` call therefore checked
+  // the first 200 accounts and stopped, so on a deployment larger than that an
+  // officer whose address was on a later page skipped the clear refusal below
+  // and got Supabase's opaque "User already registered" from the create call
+  // instead — the one failure this check exists to turn into a sentence an
+  // administrator can act on.
+  //
+  // The loop stops on a short page, which is how this API signals the end of the
+  // list, and is bounded as well so a backend that keeps answering a full page
+  // cannot spin here.
+  const PER_PAGE = 200;
+  const MAX_PAGES = 50;
+  let clash: { email?: string } | undefined;
+
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const { data: existing, error: listError } =
+      await supabase.auth.admin.listUsers({ page, perPage: PER_PAGE });
+    if (listError) {
+      throw new Error(`Supabase could not be read: ${listError.message}`);
+    }
+    clash = existing.users.find(
+      u => u.email?.toLowerCase() === input.email.toLowerCase()
+    );
+    if (clash || existing.users.length < PER_PAGE) break;
   }
-  const clash = existing.users.find(
-    (u) => u.email?.toLowerCase() === input.email.toLowerCase()
-  );
+
   if (clash) {
     throw new Error(
       `An account already exists in Supabase for ${input.email}. It is not linked to this platform; an administrator needs to resolve it in the Supabase dashboard.`

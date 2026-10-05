@@ -114,7 +114,9 @@ export function CaseMonitoringBoard({
       rows: monitoring.outstanding,
       empty: "No matters are open.",
       extra: row => (
-        <span className="tabular-nums text-slate-600">{row.daysOpen ?? 0} days open</span>
+        <span className="tabular-nums text-slate-600">
+          {row.daysOpen ?? 0} days open
+        </span>
       ),
     },
     {
@@ -146,7 +148,9 @@ export function CaseMonitoringBoard({
         <span
           className={cn(
             "tabular-nums",
-            row.overdueOnFollowUp ? "font-medium text-red-700" : "text-slate-600"
+            row.overdueOnFollowUp
+              ? "font-medium text-red-700"
+              : "text-slate-600"
           )}
         >
           {row.daysWaiting ?? 0} days waiting
@@ -192,7 +196,8 @@ export function CaseMonitoringBoard({
           </span>
         </h2>
         <p className="text-xs text-slate-500">
-          The six lists the manual requires, in the order it requires them.
+          The six lists the manual requires, in the order it requires them, plus
+          the case briefs still to prepare.
         </p>
       </header>
 
@@ -202,7 +207,8 @@ export function CaseMonitoringBoard({
           const selected = group.key === active.key;
           // The counts object is keyed by the same names as the lists, so the
           // lookup is total in practice; the row length is the fallback.
-          const count = monitoring.counts[group.key as keyof typeof monitoring.counts];
+          const count =
+            monitoring.counts[group.key as keyof typeof monitoring.counts];
           return (
             <button
               key={group.key}
@@ -232,7 +238,9 @@ export function CaseMonitoringBoard({
       </div>
 
       {active.rows.length === 0 ? (
-        <p className="px-4 py-12 text-center text-sm text-slate-500">{active.empty}</p>
+        <p className="px-4 py-12 text-center text-sm text-slate-500">
+          {active.empty}
+        </p>
       ) : (
         <ul className="divide-y divide-slate-100">
           {active.rows.slice(0, 50).map(row => (
@@ -268,7 +276,10 @@ export function CaseMonitoringBoard({
                     {active.extra?.(row)}
                   </div>
                 </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden />
+                <ChevronRight
+                  className="h-4 w-4 shrink-0 text-slate-300"
+                  aria-hidden
+                />
               </Link>
             </li>
           ))}
@@ -277,8 +288,8 @@ export function CaseMonitoringBoard({
 
       {active.rows.length > 50 ? (
         <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">
-          Showing the first 50 of {active.rows.length}. Filter the register for the
-          full set.
+          Showing the first 50 of {active.rows.length}. Filter the register for
+          the full set.
         </p>
       ) : null}
     </section>

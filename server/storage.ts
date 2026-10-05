@@ -94,7 +94,6 @@ function supabaseStorage() {
      * problem and is not one.
      */
     sign: `${ENV.supabaseUrl}/storage/v1/object/sign/${ENV.storageBucket}`,
-    key: ENV.supabaseServiceRoleKey,
   };
 }
 
@@ -121,9 +120,19 @@ async function storageFailure(
  *
  * A key arrives from the database and, in the local backend, is turned into a
  * filesystem path - so `../../etc/passwd` is reachable unless this refuses it.
- * Checked after normalisation and before the path is built, and the resolved
- * path is re-checked against the root, because a key containing a symlinked
- * segment would pass a prefix test on the unresolved string.
+ * Leading slashes and NUL bytes are stripped/refused first, then the key is
+ * resolved and compared back against the root, which rejects every `..` escape
+ * and every absolute path.
+ *
+ * What this does *not* do is follow symlinks: `path.resolve` is purely lexical
+ * and there is no `fs.realpath` here, so a symlink planted inside the root would
+ * be traversed. This comment previously claimed the resolved path was re-checked
+ * for exactly that, and it was not. It is not reachable from the application —
+ * keys are derived on the server (`avatars/{id}.{ext}`,
+ * `cases/{id}/{n}-{timestamp}.{ext}`) and the route is session-guarded — so the
+ * gap is recorded rather than closed. `localPathForKey` also rejects a key
+ * beginning with two dots, so a file genuinely named `..hidden.png` is refused;
+ * no server-derived key can look like one.
  */
 export function localPathForKey(relKey: string): string | null {
   const key = relKey.replace(/^\/+/, "");
@@ -155,6 +164,22 @@ function normalizeKey(relKey: string): string {
   return relKey.replace(/^\/+/, "");
 }
 
+/**
+ * Makes every write land on its own object.
+ *
+ * The suffix is **random**, not a content hash — several comments elsewhere in
+ * this codebase described it as one, and it was not, which made two of them
+ * describe a guarantee that did not exist. What the code actually guarantees is
+ * narrower and still sufficient: no write can overwrite an earlier one, so
+ * re-uploading identical bytes produces a second object rather than replacing the
+ * first. `uploadAvatar` in `server/routers.ts` depends on exactly that, deleting
+ * the previous object itself once the row points at the new one.
+ *
+ * It is named `appendHashSuffix` rather than `appendUniqueSuffix` only for
+ * continuity with the callers' wording; the value is eight hex characters of a
+ * UUID, which is collision-resistant enough for object names but is not derived
+ * from the bytes and must not be read as a checksum of them.
+ */
 function appendHashSuffix(relKey: string): string {
   const hash = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   const lastDot = relKey.lastIndexOf(".");
@@ -189,9 +214,11 @@ export async function storagePut(
     // this is the preferred backend over an external presigner on a project
     // that already has a provider.
     //
-    // `x-upsert` so re-uploading the same logical file replaces it rather than
-    // failing — the key carries a content hash, so a genuine second version has
-    // a different key and cannot overwrite an earlier one.
+    // `x-upsert` so re-uploading the same logical key replaces it rather
+    // than failing. It cannot currently fire for a real upload, because
+    // `appendHashSuffix` gives every write a fresh key — see the note there. The
+    // flag is kept so that if the suffix ever became content-derived, the
+    // identical-bytes case would replace rather than collide.
     const body =
       typeof data === "string"
         ? Buffer.from(data)

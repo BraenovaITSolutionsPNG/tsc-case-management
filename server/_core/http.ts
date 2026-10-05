@@ -17,13 +17,16 @@ export function toTrpcRequest(request: Request): TrpcRequest {
     headers[key.toLowerCase()] = value;
   });
 
-  // `Headers.forEach` folds repeated headers with ", ", but the cookie
-  // serialisation pairs are separated with "; " and a folded pair would not
-  // parse. `getSetCookie` gives them back individually.
-  const cookieParts = request.headers.getSetCookie?.() ?? [];
-  if (cookieParts.length) {
-    headers.cookie = cookieParts.join("; ");
-  }
+  // Repeated `cookie` headers are folded into one comma-joined value by
+  // `Headers.forEach` above, which the cookie parser cannot read — it expects
+  // pairs separated with "; ". The Fetch API's own answer is `getSetCookie`, but
+  // that returns `Set-Cookie` values, which a *request* never carries, so it is
+  // always empty here and cannot unfold anything. Next.js supplies a single
+  // `cookie` header already joined with "; ", so the line above is correct as it
+  // stands; this comment previously claimed the block below fixed the folding
+  // and it never did. A runtime that did fold it would need the pairs re-joined
+  // here, and `supabaseSessionCookieNames` would then miss a chunked session
+  // cookie — the failure that function's regex exists to prevent.
 
   // Node does not populate `protocol`; trust the proxy header when present and
   // otherwise assume the connection Next terminated is plain HTTP locally.

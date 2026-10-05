@@ -65,7 +65,7 @@ export function getSessionCookieOptions(
  */
 const SUPABASE_SESSION_COOKIE = /^sb-.+-auth-token(?:\.\d+)?$/;
 
-/** Every Supabase session cookie on this request, de-duplicated, base name last. */
+/** Every Supabase session cookie on this request, de-duplicated, in the order they were sent. */
 export function supabaseSessionCookieNames(req: TrpcRequest): string[] {
   const header = req.headers.cookie;
   if (!header) return [];

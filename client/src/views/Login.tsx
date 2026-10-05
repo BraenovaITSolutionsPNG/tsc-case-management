@@ -308,13 +308,9 @@ function LoginForm() {
         return;
       }
 
-      // The session is now in the cookie; a hard navigation lets the server
-      // pick it up on the first paint instead of routing through a stale
-      // client-side cache. `next` is same-origin relative or it would have been
-      // dropped by the sign-in screen's own check before reaching here.
-      //
-      // The note and the event first, then a *client-side* navigation. Both
-      // halves matter and the order is load-bearing.
+      // The session is now in the cookie. The note and the event
+      // first, then a *client-side* navigation. Both halves matter and the order
+      // is load-bearing.
       //
       // The event is how the gate above the router learns a sign-in happened, and
       // it only works if the gate is still mounted — so this cannot be a full
@@ -323,10 +319,10 @@ function LoginForm() {
       // the whole wait rather than appearing after it.
       //
       // A hard navigation was the older behaviour, chosen so the server would
-      // resolve the session on the first paint. That is still true here — the
-      // dashboard is a Server Component and fetches its own session — but the
-      // hard load bought it at the cost of a full teardown, and with it the
-      // branded screen, which is what this whole mechanism is for.
+      // resolve the session on the first paint. That is still true of the landing
+      // screen — the overview is a Server Component and fetches its own session —
+      // but the hard load bought it at the cost of a full teardown, and with it
+      // the branded screen, which is what this whole mechanism is for.
       markPostSignIn();
       router.push(LANDING_PATH);
     } catch (error) {
