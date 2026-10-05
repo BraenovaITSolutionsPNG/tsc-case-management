@@ -54,7 +54,6 @@ import {
   protectedProcedure,
   publicProcedure,
   router,
-  superAdminProcedure,
 } from "./_core/trpc";
 import {
   addCaseDocument,
@@ -465,12 +464,13 @@ export const appRouter = router({
         }
 
         const extension = AVATAR_EXTENSIONS[actual];
-        // The key the officer is replacing, read before it is overwritten. The
-        // stored key carries a content hash, so a second image is a second
-        // object rather than a replacement of the first, and nothing downstream
-        // removes it — which meant every changed profile picture left the old
-        // one in the bucket forever. Four avatars and no way back is a slow leak
-        // nobody would notice until the bucket is full.
+        // The key the officer is replacing, read before it is overwritten.
+        // Every write gets its own key — `storagePut` appends a random suffix,
+        // not a content hash — so a second image is a second object rather than a
+        // replacement of the first, and nothing downstream removes it, which
+        // meant every changed profile picture left the old one in the bucket
+        // forever. Four avatars and no way back is a slow leak nobody would
+        // notice until the bucket is full.
         const previous = ctx.user.avatarKey;
 
         try {
@@ -1709,7 +1709,13 @@ export const appRouter = router({
                   error: "Event type must be 60 characters or fewer.",
                 })
                 .optional(),
-              ...pageBounds(OVERSIGHT_PAGE_SIZE),
+              // `AUDIT_PAGE_SIZE`, the same constant the default below and the
+              // screen use. It was `OVERSIGHT_PAGE_SIZE` here, so the bound was
+              // 20 while the default was 50: the audit screen sent 50 and the
+              // route answered "Show no more than 20 rows at a time", which is a
+              // refusal the whole screen can never recover from because every
+              // request it makes carries the same page size.
+              ...pageBounds(AUDIT_PAGE_SIZE),
             })
             .optional()
         )

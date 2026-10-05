@@ -464,7 +464,13 @@ function CategoryPanel({
 /** The monthly provincial matters report, with a period picker. */
 function MonthlyTab() {
   const [month, setMonth] = useState(currentMonthKey());
-  const query = trpc.reports.monthly.useQuery({ month });
+  // `month || undefined`, the way the quarterly tab below already reads its own
+  // period picker. A native `<input type="month">` answers `""` when it is
+  // cleared, and the route's validator takes a month only in the form
+  // `2026-01` — so passing the empty string through turned clearing the picker
+  // into "Choose a month, in the form 2026-01." rather than back to the current
+  // month, which is what leaving the field blank should mean.
+  const query = trpc.reports.monthly.useQuery({ month: month || undefined });
   const utils = trpc.useUtils();
 
   return (
@@ -1097,7 +1103,14 @@ function was(current: number, previous: number) {
   return `${delta > 0 ? "up" : "down"} from ${previous}`;
 }
 
-/** Green for movement in the right direction, red for the other. */
+/**
+ * Green for movement in the right direction, amber for the other.
+ *
+ * Amber, not red: this is called on "Received" as well as "Closed", and more
+ * matters received is not a fault — a rise in intake is a fact about the
+ * province's month, not an adverse movement. Only a fall in "Closed" is a
+ * shortfall, and the single tone keeps the two headlines comparable.
+ */
 function deltaTone(current: number, previous: number) {
   if (current === previous) return undefined;
   return current > previous ? "text-emerald-700" : "text-amber-700";
