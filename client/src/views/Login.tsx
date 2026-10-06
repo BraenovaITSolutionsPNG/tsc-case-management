@@ -63,6 +63,19 @@ import { useEffect, useState } from "react";
  * happen to be set to. Change PALETTE and the whole screen moves together.
  */
 
+/**
+ * How long the platform may take before a hard load is preferable to waiting.
+ *
+ * The safety net for the sign-in wait. The button now carries that wait on its
+ * own, which means a navigation that never commits would leave a spinner turning
+ * for ever with nothing to press — the failure the full-screen takeover used to
+ * hide, not solve. Reloading is the honest answer to it: the session cookie was
+ * written before the navigation was attempted, so a document load resolves it
+ * server-side and lands on the overview by the normal route. If the platform is
+ * genuinely down, the load shows that rather than spinning.
+ */
+const HANDOVER_FALLBACK_MS = 20_000;
+
 const REMEMBER_KEY = "tsc-remembered-email";
 
 /**
@@ -268,13 +281,19 @@ function LoginForm() {
   // The refusal screen's one button, disabled while it runs so a second press
   // cannot start a second sign-out behind the first.
   const [signingOut, setSigningOut] = useState(false);
-  // Set once the credential has been accepted and the navigation to the
-  // platform is under way. This screen stays mounted until that
-  // navigation commits, and the loader it draws is what covers the
-  // wait — see the branch below. Nothing clears it, because nothing
-  // needs to: the navigation committing is what unmounts the screen.
-  const [handover, setHandover] = useState(false);
+  // True once the credential has been accepted and the platform is on its way.
+  // Drives the fallback below; the button's own `busy` state covers the wait.
+  const [awaitingPlatform, setAwaitingPlatform] = useState(false);
 
+  useEffect(() => {
+    if (!awaitingPlatform) return;
+
+    const fallback = setTimeout(() => {
+      window.location.assign(LANDING_PATH);
+    }, HANDOVER_FALLBACK_MS);
+
+    return () => clearTimeout(fallback);
+  }, [awaitingPlatform]);
   // The remembered address is read after mount, never during the first render:
   // the server has no `localStorage`, so rendering from it there would produce
   // markup that disagrees with the client's and React would discard the lot.
@@ -324,34 +343,32 @@ function LoginForm() {
         // console, so at least the console should say which it was.
         console.warn("[Auth] sign-in rejected:", signInError.message);
         setError("That email address and password were not accepted.");
+        setBusy(false);
         return;
       }
 
-      // The session is now in the cookie, and the navigation to the
-      // platform is a *client-side* one. A hard load was the older
-      // behaviour, chosen so the server would resolve the session on the
-      // first paint — which the landing screen still does, being a Server
-      // Component — but it bought that at the cost of tearing the whole
-      // document down, and a push keeps this screen mounted until the
-      // platform's first paint commits.
+      // The session is now in the cookie, and the navigation to the platform is
+      // a *client-side* one. A hard load was the older behaviour, chosen so the
+      // server would resolve the session on the first paint — which the landing
+      // screen still does, being a Server Component — but it bought that at the
+      // cost of tearing the whole document down, and a push keeps this screen
+      // mounted until the platform's first paint commits.
       //
-      // That is also what covers the wait. The overview is a Server
-      // Component and takes seconds to arrive on a cold deployment, and
-      // the officer has just proved who they are — the one navigation in
-      // the platform where a full-screen loader is the right answer,
-      // because there is nothing else on screen that could say the
-      // sign-in worked. This screen draws it until the navigation
-      // commits and unmounts it, so the loader cannot outlive the wait
-      // it belongs to, and no other screen ever needs to know a handover
-      // is under way. Every other move in the platform says nothing at
-      // all, which is the point: a takeover on a tab change is the most
-      // disruptive thing an interface can do, and it is what made the
-      // tabs read as slow.
+      // `busy` is left true, on purpose, and this comment used to say the
+      // opposite: that the wait was covered by drawing a *second* loader here —
+      // a full-screen takeover over the form. That was the arrangement until it
+      // was pointed out that one sign-in produced two loaders in a row, a
+      // spinner in the button and then a takeover that replaced it. An officer
+      // watching that sees a control that cannot decide whether it is working,
+      // and the form they had just filled in disappearing at the moment it
+      // started to matter.
       //
-      // A navigation that never commits would leave this up; that is a
-      // broken platform rather than a slow one, and the officer can
-      // always reload.
-      setHandover(true);
+      // So there is now exactly one, and it is the one they already pressed: the
+      // button stays disabled with its spinner turning for the whole wait, until
+      // this screen unmounts because the overview has committed. The form stays
+      // on screen throughout, which is worth more than the takeover was — they
+      // can still see the address they signed in with.
+      setAwaitingPlatform(true);
       router.push(LANDING_PATH);
     } catch (error) {
       // Logged before it is replaced by a generic sentence, because this branch
@@ -365,11 +382,11 @@ function LoginForm() {
       setError(
         "The sign-in service could not be reached. Try again in a moment."
       );
-    } finally {
       setBusy(false);
+    } finally {
       // The password is dropped from component state whatever happened. A form
-      // that keeps it after a rejection would leave it in memory for as long
-      // as the page is open, which on a shared machine is a stored credential
+      // that keeps it after a rejection would leave it in memory for as long as
+      // the page is open, which on a shared machine is a stored credential
       // nobody asked to store.
       setPassword("");
     }
@@ -395,15 +412,6 @@ function LoginForm() {
   // them the loader still covers the redirect.
   if (isAuthenticated) {
     return <PageLoader label="Checking your session" />;
-  }
-
-  // The handover to the platform, drawn by this screen for the whole of
-  // the wait — the navigation keeps the sign-in form mounted until the
-  // overview's first paint commits, and this replaces the form the
-  // moment the credential is accepted, so the officer is never looking
-  // at a form that has already done its job.
-  if (handover) {
-    return <PageLoader label="Preparing your overview" />;
   }
 
   // Signed in with Supabase, and refused by us.
