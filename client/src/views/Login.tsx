@@ -64,15 +64,20 @@ import { useEffect, useState } from "react";
  */
 
 /**
- * How long the platform may take before a hard load is preferable to waiting.
+ * How long the platform may take before the sign-in is re-checked.
  *
- * The safety net for the sign-in wait. The button now carries that wait on its
- * own, which means a navigation that never commits would leave a spinner turning
- * for ever with nothing to press — the failure the full-screen takeover used to
- * hide, not solve. Reloading is the honest answer to it: the session cookie was
- * written before the navigation was attempted, so a document load resolves it
- * server-side and lands on the overview by the normal route. If the platform is
- * genuinely down, the load shows that rather than spinning.
+ * The safety net for the wait the button now carries on its own. It used to
+ * reload the document, which is exactly the thing an officer should never see
+ * happen after they have signed in: the overview paints, and is then torn down
+ * and painted again. On a cold deployment the dashboard's aggregation can
+ * outlast this, so the reload fired on perfectly healthy sign-ins and looked
+ * like a fault in the platform rather than the thing it was.
+ *
+ * So nothing is reloaded. The session cookie was written before the navigation
+ * was attempted, which means the only question worth asking is whether it is
+ * still good — and `auth.me` answers it without leaving the page. A session that
+ * verifies sends the redirect effect above on its way; one that does not brings
+ * the button back with the officer's address still in it.
  */
 const HANDOVER_FALLBACK_MS = 20_000;
 
@@ -232,6 +237,8 @@ function Illustration() {
 function LoginForm() {
   const router = useRouter();
   const { isAuthenticated, logout } = useAuth();
+  // For re-checking the session if the handover below does not land.
+  const utils = trpc.useUtils();
   // Null unless the server refused a session the browser holds: an identity
   // with no register row, or an account that has been deactivated. Null for an
   // ordinary anonymous visitor, which is why this is a second query rather than
@@ -288,12 +295,16 @@ function LoginForm() {
   useEffect(() => {
     if (!awaitingPlatform) return;
 
-    const fallback = setTimeout(() => {
-      window.location.assign(LANDING_PATH);
+    const recheck = setTimeout(() => {
+      // The navigation has not committed. Ask the one question that decides it,
+      // rather than reloading the page: a session that verifies is picked up by
+      // the redirect effect above, and one that does not hands the button back.
+      setBusy(false);
+      void utils.auth.me.refetch();
     }, HANDOVER_FALLBACK_MS);
 
-    return () => clearTimeout(fallback);
-  }, [awaitingPlatform]);
+    return () => clearTimeout(recheck);
+  }, [awaitingPlatform, utils]);
   // The remembered address is read after mount, never during the first render:
   // the server has no `localStorage`, so rendering from it there would produce
   // markup that disagrees with the client's and React would discard the lot.
