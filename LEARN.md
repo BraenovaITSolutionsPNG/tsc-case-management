@@ -27,12 +27,22 @@ it did not happen.
 
 ### A note on naming
 
-Two descriptions of the deploying body exist in the repository and they disagree:
-`IDEA.md` describes the **Kenya** Teachers Service Commission, while
-`shared/validation.ts` refers to a **Papuan New Guinea** "Commission" and
-"provincial secretary". Both are cosmetic — no logic depends on either — but
-neither is authoritative and one should be chosen before this goes to an office.
-Worth settling early, because it appears in user-facing copy.
+**Settled: Papua New Guinea.** `IDEA.md` and `README.md` originally described the
+**Kenya** Teachers Service Commission, which was wrong — everything the platform
+presents says Papua New Guinea, and had said so all along: the national emblem on
+the sign-in screen, the wordmark's alt and title text in `OrganisationLogos.tsx`,
+the copyright line, and the `.gov.pg` addresses in the sign-in placeholders.
+
+The one place Kenya survived was `metadata.description` in `app/layout.tsx`, which
+is what appears in a browser tab, in a bookmark and in a search result — so the
+site announced itself to the outside world as a Kenyan system while presenting as
+a Papuan one to everyone who signed in. That is the kind of disagreement nobody
+notices and everybody remembers.
+
+This note previously claimed `shared/validation.ts` referred to a "Papuan New
+Guinea" commission. It does not — there is no reference to either country in that
+file, so the conflict it described was smaller than it looked: three
+documentation files against the entire application.
 
 ### Stack
 

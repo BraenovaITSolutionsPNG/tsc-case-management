@@ -1,4 +1,4 @@
-TSC Case Management — a full-stack web app for the Kenya Teachers Service Commission (TSC) Provincial Matters office, implementing the TSC Provincial Matters Administration Manual.
+TSC Case Management — a full-stack web app for the Papua New Guinea Teachers Service Commission (TSC) Provincial Matters office, implementing the TSC Provincial Matters Administration Manual.
 
 - Stack: React 19 + Next.js 16 (App Router) + Tailwind/shadcn UI, tRPC over Next.js route handlers, Drizzle ORM on PostgreSQL (Supabase), Supabase Auth, S3 file storage. Server data reaches the browser as a dehydrated TanStack Query cache, so each screen renders with its data already present.
 - Domain: registers and tracks teacher cases through an 11-stage workflow (NEW → VER → INV → REF → ADV → DEC → LEG → ACT → RES/CLS/ESC), with referral to National TSC sections, deadlines/overdue escalation, delegation of duties, quarterly returns, and reports.

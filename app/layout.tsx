@@ -26,7 +26,7 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "TSC Case Management",
   description:
-    "Provincial matters administration for the Kenya Teachers Service Commission.",
+    "Provincial matters administration for the Papua New Guinea Teachers Service Commission.",
 };
 
 export const viewport: Viewport = {

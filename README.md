@@ -1,7 +1,8 @@
 # TSC Case Management
 
-A case management platform for the Kenya Teachers Service Commission's Provincial
-Matters office, implementing the TSC Provincial Matters Administration Manual.
+A case management platform for the Papua New Guinea Teachers Service Commission's
+Provincial Matters office, implementing the TSC Provincial Matters Administration
+Manual.
 
 It registers and tracks teacher matters through the manual's 11-stage workflow,
 refers them to National TSC sections, escalates them as deadlines pass, and
