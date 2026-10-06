@@ -220,13 +220,29 @@ function Illustration() {
       <Image
         src={officeIllustration}
         alt=""
-        fill
-        priority
+        // The source's own dimensions rather than `fill`.
+        //
+        // `fill` sizes the image from its parent and emits no width/height at
+        // all, which is what put a "lazy-loaded images should have explicit
+        // dimensions" finding on this page: nothing in the markup declared a
+        // ratio for the artwork. It never actually shifted here — the wrapper
+        // above is `absolute inset-y-0 w-[54%]`, so the box was fixed by CSS
+        // before the file was requested — but a finding that says the markup
+        // does not know how big this is, on the first screen an officer sees,
+        // is worth closing rather than explaining.
+        //
+        // Stating the intrinsic size declares the ratio; `sizes` still lets the
+        // optimiser pick a small candidate for a 54%-wide, viewport-tall slot.
+        // The classes below carry the positioning that `fill` used to, so the
+        // rendered box is byte-for-byte what it was.
+        width={1408}
+        height={768}
         sizes="54vw"
+        priority
         // The fade is on the picture, not a panel laid over it: masking the
         // image dissolves its left edge into the page, where covering it would
         // simply hide the quarter of the artwork the fade was meant to reveal.
-        className="object-cover object-[42%_center] [mask-image:linear-gradient(to_right,transparent_0%,#000_38%)]"
+        className="absolute inset-0 h-full w-full object-cover object-[42%_center] [mask-image:linear-gradient(to_right,transparent_0%,#000_38%)]"
       />
       <div className="absolute inset-0 bg-[var(--login-illustration-wash)] mix-blend-multiply" />
       <div className="absolute inset-0 bg-[var(--login-illustration-scrim)]" />
