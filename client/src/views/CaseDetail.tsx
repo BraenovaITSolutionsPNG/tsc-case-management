@@ -23,7 +23,7 @@ import {
   todayInputValue,
 } from "@/lib/dateInput";
 import { cn } from "@/lib/utils";
-import { can, refusalFor, type Capability } from "@shared/access";
+import { can, dashboardFor, refusalFor, type Capability } from "@shared/access";
 import {
   CASE_BRIEF_FIELDS,
   CASEFILE_MAX_BYTES,
@@ -93,6 +93,19 @@ export default function CaseDetail() {
   const id = Number(params?.id);
   const utils = trpc.useUtils();
   const { data: user } = trpc.auth.me.useQuery();
+
+  /**
+   * The Director and his office live from the overview home, not the register;
+   * opening a matter from the desk should lead back there, so the back link
+   * says what it leads to. Everyone else who reaches a matter through the
+   * register expects to be dropped back on it.
+   */
+  const backToOverview = dashboardFor(user?.role) === "director";
+  const backHref = backToOverview ? "/" : "/cases";
+  const backLabel = backToOverview
+    ? "Back to the overview"
+    : "Back to the register";
+
   const query = trpc.caseManagement.getById.useQuery(
     { id },
     { enabled: Number.isInteger(id) && id > 0 }
@@ -116,7 +129,11 @@ export default function CaseDetail() {
     return (
       <DashboardLayout>
         <PageShell>
-          <NotAMatter heading="That is not a matter reference" />
+          <NotAMatter
+            heading="That is not a matter reference"
+            backHref={backHref}
+            backLabel={backLabel}
+          />
         </PageShell>
       </DashboardLayout>
     );
@@ -147,6 +164,8 @@ export default function CaseDetail() {
             heading="This matter could not be opened"
             detail={query.error?.message}
             onRetry={() => void utils.caseManagement.getById.invalidate({ id })}
+            backHref={backHref}
+            backLabel={backLabel}
           />
         </PageShell>
       </DashboardLayout>
@@ -175,9 +194,9 @@ export default function CaseDetail() {
     <DashboardLayout>
       <PageShell>
         <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href="/cases">
+          <Link href={backHref}>
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to the register
+            {backLabel}
           </Link>
         </Button>
 
@@ -2024,10 +2043,14 @@ function NotAMatter({
   heading,
   detail,
   onRetry,
+  backHref,
+  backLabel,
 }: {
   heading: string;
   detail?: string;
   onRetry?: () => void;
+  backHref: string;
+  backLabel: string;
 }) {
   return (
     // `role="alert"` because this stands for both a matter that could not be
@@ -2046,7 +2069,7 @@ function NotAMatter({
       ) : null}
       <div className="mt-5 flex justify-center gap-2">
         <Button asChild variant="secondary">
-          <Link href="/cases">Back to the register</Link>
+          <Link href={backHref}>{backLabel}</Link>
         </Button>
         {onRetry ? (
           <Button variant="outline" onClick={onRetry}>
