@@ -297,6 +297,12 @@ export function AIChatBox({
 
               {isLoading && (
                 <div
+                  // Announced, because the assistant's reply arriving is the
+                  // only thing that tells the officer the platform heard them.
+                  // The bubble was previously a bare spinner with no role and no
+                  // text, so the wait was silent for anyone not looking at it.
+                  role="status"
+                  aria-live="polite"
                   className="flex items-start gap-3"
                   style={
                     minHeightForLastMessage > 0
@@ -305,10 +311,16 @@ export function AIChatBox({
                   }
                 >
                   <div className="size-8 shrink-0 mt-1 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Sparkles className="size-4 text-primary" />
+                    <Sparkles className="size-4 text-primary" aria-hidden />
                   </div>
                   <div className="rounded-lg bg-muted px-4 py-2.5">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    <Loader2
+                      className="size-4 animate-spin text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span className="sr-only">
+                      The assistant is writing a reply.
+                    </span>
                   </div>
                 </div>
               )}
@@ -340,10 +352,19 @@ export function AIChatBox({
           disabled={!input.trim() || isLoading}
           className="shrink-0 h-[38px] w-[38px]"
         >
+          {/* The label follows the state, because an icon-only button has no
+              accessible name of its own in either state — it was "button" to a
+              screen reader whether it was ready to send or busy. */}
           {isLoading ? (
-            <Loader2 className="size-4 animate-spin" />
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <span className="sr-only">The assistant is replying</span>
+            </>
           ) : (
-            <Send className="size-4" />
+            <>
+              <Send className="size-4" aria-hidden />
+              <span className="sr-only">Send</span>
+            </>
           )}
         </Button>
       </form>

@@ -69,7 +69,57 @@ import { useState, type ReactNode } from "react";
  */
 
 export default function Reports() {
-  const { data: user } = trpc.auth.me.useQuery();
+  const utils = trpc.useUtils();
+  const me = trpc.auth.me.useQuery();
+  const user = me.data;
+
+  /*
+   * On the way in, before the gate below.
+   *
+   * The gate reads `user && !can(...)`, which is false while `user` is still
+   * undefined — so the whole reporting set rendered while the identity was still
+   * being resolved, and all five report queries went out before anyone knew
+   * whether this officer was entitled to see them. The server refuses them, so
+   * nothing leaked; the cost was a screen of requests an officer with no
+   * capability could not use, and the tab strip appearing for someone about to
+   * be told they cannot open it.
+   *
+   * Waiting here costs nothing instead. The `/reports` segment already prefetches
+   * `auth.me` through the session guard, so this is answered from cache and the
+   * gate has its answer on the first paint.
+   */
+  if (me.isPending) {
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <LoadingState label="The reporting set">
+            <Skeleton className="h-8 w-64" />
+            <SkeletonRows />
+          </LoadingState>
+        </PageShell>
+      </DashboardLayout>
+    );
+  }
+
+  /*
+   * And a failure is not a refusal. `me.isError` used to fall into the same
+   * branch as an officer who lacks the capability, which reported "not open to
+   * your role" for what was a failed request — naming the officer's permissions
+   * as the cause of something the platform could not answer.
+   */
+  if (me.isError) {
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <ErrorState
+            title="Your account could not be checked"
+            message={me.error?.message}
+            onRetry={() => void utils.auth.me.invalidate()}
+          />
+        </PageShell>
+      </DashboardLayout>
+    );
+  }
 
   if (user && !can(user.role, "report:view")) {
     return (
@@ -612,12 +662,44 @@ function MonthlyTab() {
 function QuarterlyTab() {
   const [quarter, setQuarter] = useState("");
   const quarters = trpc.reports.quarters.useQuery();
-  const query = trpc.reports.quarterly.useQuery(
-    quarter ? { quarter } : undefined
-  );
   const utils = trpc.useUtils();
 
   const selected = quarter || quarters.data?.[0]?.key || "";
+
+  // Not requested until the picker has an answer.
+  //
+  // With no quarter chosen this used to send `undefined`, and the server
+  // answered for whichever quarter it considered current — so the officer was
+  // shown a quarterly report under an empty `<select>` that had never named the
+  // period it was about. The figures were right and the heading above them was
+  // missing, which is the sort of thing that is noticed in a briefing rather
+  // than on the screen.
+  const query = trpc.reports.quarterly.useQuery(
+    { quarter: selected },
+    { enabled: Boolean(selected) }
+  );
+
+  // The picker is what the report hangs on, so a failure to read it is a
+  // failure to produce the report — not an empty control beside a report.
+  if (quarters.isError) {
+    return (
+      <ErrorState
+        title="The list of quarters could not be read"
+        message={quarters.error?.message}
+        onRetry={() => void utils.reports.quarters.invalidate()}
+      />
+    );
+  }
+
+  if (!selected) {
+    return quarters.isPending ? (
+      <LoadingState label="The list of quarters">
+        <Skeleton className="h-8 w-40" />
+      </LoadingState>
+    ) : (
+      <EmptyState text="There are no quarters to report on yet." />
+    );
+  }
 
   return (
     <div className="space-y-5">

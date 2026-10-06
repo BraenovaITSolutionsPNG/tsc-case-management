@@ -211,6 +211,12 @@ export default function CaseRegister() {
         />
 
         <StatTable
+          loading={!figures}
+          error={
+            summary.error
+              ? `The register's figures could not be counted: ${summary.error.message}`
+              : null
+          }
           items={[
             {
               label: "Matters on the register",

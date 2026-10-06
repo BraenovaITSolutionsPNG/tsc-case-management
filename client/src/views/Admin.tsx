@@ -15,7 +15,7 @@ import {
 } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
-import { LoadingState } from "@/components/States";
+import { ErrorState, LoadingState } from "@/components/States";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -352,6 +352,16 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                 ))}
               </div>
             </LoadingState>
+          ) : users.isError ? (
+            // Without this the table below renders over `users.data ?? []`, so a
+            // failed request read as an empty register: "0 accounts · 0 active"
+            // under the heading, which is an administrator being told there are
+            // no officers to administer.
+            <ErrorState
+              title="The account list could not be read"
+              message={users.error?.message}
+              onRetry={() => void utils.admin.users.list.invalidate()}
+            />
           ) : (
             <>
               {/*
@@ -549,7 +559,15 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={!user.isProvisioned}
+                                // Held while a reset is being written. The
+                                // dialog's own button already shows the pending
+                                // state, but this is what reopens it, so a second
+                                // press mid-write swapped the officer being edited
+                                // underneath the confirmation in flight.
+                                disabled={
+                                  !user.isProvisioned ||
+                                  setPasswordMutation.isPending
+                                }
                                 title={
                                   user.isProvisioned
                                     ? "Set or replace this officer's password"
@@ -585,6 +603,7 @@ function UsersTab({ currentUserId }: { currentUserId: number }) {
                                 )}
                                 onClick={() => {
                                   if (isSelf) return;
+                                  if (deleteMutation.isPending) return;
                                   if (user.references.total > 0) {
                                     toast.error(
                                       `${user.name ?? "This person"} appears in the accountability trail. Deactivate the account instead — it closes the sign-in and keeps the record.`,
@@ -760,6 +779,8 @@ function AuditTab() {
   const [search, setSearch] = useState("");
   const [eventType, setEventType] = useState<string>("all");
   const [page, setPage] = useState(1);
+  // For the retry on the error branch below.
+  const utils = trpc.useUtils();
 
   const types = trpc.admin.audit.eventTypes.useQuery();
   // Paged, and the filters run server-side. The search and the type filter used
@@ -831,6 +852,16 @@ function AuditTab() {
             ))}
           </div>
         </LoadingState>
+      ) : audit.isError ? (
+        // Not the empty state below. "No audit entries match the current
+        // filters" is a claim about the audit trail, and a request that failed
+        // makes no claim at all — an audit trail that answers "nothing here"
+        // when it could not be read is worse than one that admits it.
+        <ErrorState
+          title="The audit trail could not be read"
+          message={audit.error?.message}
+          onRetry={() => void utils.admin.audit.list.invalidate()}
+        />
       ) : rows.length ? (
         <>
           {/* Fixed layout with stated widths, and a floor on the table. The
@@ -1032,6 +1063,16 @@ function OversightTab() {
             ))}
           </div>
         </LoadingState>
+      ) : cases.isError ? (
+        // The worst of the three, because this list decides what a Director is
+        // asked to act on. A failed read used to fall through to an empty table
+        // with headers and no rows, which says the province has no matters —
+        // the one conclusion that must never be reached by accident.
+        <ErrorState
+          title="The oversight list could not be read"
+          message={cases.error?.message}
+          onRetry={() => void utils.admin.cases.list.invalidate()}
+        />
       ) : (
         <>
           {/* Fixed layout: the Oversight column holds two selects, which
@@ -1282,8 +1323,14 @@ function StatsTab() {
   }
   if (stats.isError) {
     return (
-      <div className="flex items-center gap-3 border-y border-rose-200 bg-rose-50/50 px-4 py-3 text-[13px] text-rose-800">
-        <AlertTriangle className="h-4 w-4" /> {stats.error.message}
+      <div
+        // `role="alert"`, which `ErrorState` already uses everywhere else in
+        // this file. A bare div is silent: the statistics failed and the officer
+        // was never told, so a blank panel reads as "no figures yet".
+        role="alert"
+        className="flex items-center gap-3 border-y border-rose-200 bg-rose-50/50 px-4 py-3 text-[13px] text-rose-800"
+      >
+        <AlertTriangle className="h-4 w-4" aria-hidden /> {stats.error.message}
       </div>
     );
   }
@@ -1406,14 +1453,35 @@ function StatsTab() {
 // ---------------------------------------------------------------- Page
 
 export default function Admin() {
-  const { data: user, isLoading: loading } = trpc.auth.me.useQuery();
+  const utils = trpc.useUtils();
+  const me = trpc.auth.me.useQuery();
+  const { data: user } = me;
 
-  if (loading)
+  if (me.isPending)
     return (
       <DashboardLayout>
         <LoadingState label="Your account">
           <Skeleton className="mx-auto h-64 max-w-[1400px] rounded-xl" />
         </LoadingState>
+      </DashboardLayout>
+    );
+
+  // Before the capability gate, not folded into it. `!user` below covers both an
+  // officer without the capability and an identity that could not be read, and
+  // the second was being reported to the officer as the first: "Administration
+  // access required" is a statement about their role, offered because a request
+  // failed. An administrator reading that would go looking for a permissions
+  // problem they do not have.
+  if (me.isError)
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <ErrorState
+            title="Your account could not be checked"
+            message={me.error?.message}
+            onRetry={() => void utils.auth.me.invalidate()}
+          />
+        </PageShell>
       </DashboardLayout>
     );
 

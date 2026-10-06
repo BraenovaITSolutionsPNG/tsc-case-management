@@ -4,7 +4,7 @@ import { CardPanel } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { PageHeader, PageShell } from "@/components/PageHeader";
-import { LoadingState } from "@/components/States";
+import { ErrorState, LoadingState } from "@/components/States";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -304,6 +304,24 @@ function DevicesPanel() {
     return (
       <CardPanel title="Where you're signed in">
         <Skeleton className="h-24 rounded-lg" />
+      </CardPanel>
+    );
+  }
+
+  // Before the capability branch, and separately from it. `!data?.available`
+  // catches a failed request as well as an absent capability, which had this
+  // screen telling an officer their *deployment* cannot manage devices because
+  // one request did not come back — a claim about the platform's
+  // configuration, offered with no way to retry and no way to tell it apart
+  // from a real one.
+  if (sessions.isError) {
+    return (
+      <CardPanel title="Where you're signed in">
+        <ErrorState
+          title="Your signed-in devices could not be read"
+          message={sessions.error?.message}
+          onRetry={() => void utils.auth.sessions.invalidate()}
+        />
       </CardPanel>
     );
   }

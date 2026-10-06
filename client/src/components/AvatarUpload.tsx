@@ -108,9 +108,22 @@ export function AvatarUpload({
           </span>
         )}
 
+        {/*
+          `role="status"` with a message, because the overlay covers the avatar
+          it belongs to and a sighted officer sees a spinner where their
+          photograph was — which is the only evidence they get. A screen-reader
+          user was getting nothing at all, and the icon alone is not announced.
+        */}
         {uploading ? (
-          <span className="absolute inset-0 flex items-center justify-center bg-white/70">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span
+            role="status"
+            className="absolute inset-0 flex items-center justify-center bg-white/70"
+          >
+            <Loader2
+              className="h-4 w-4 animate-spin text-primary"
+              aria-hidden
+            />
+            <span className="sr-only">Uploading your photograph.</span>
           </span>
         ) : null}
       </div>

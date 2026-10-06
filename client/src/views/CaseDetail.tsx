@@ -4,7 +4,7 @@ import { CardPanel } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { ReferMatterDialog } from "@/components/ReferMatterDialog";
-import { LoadingState } from "@/components/States";
+import { ErrorState, LoadingState } from "@/components/States";
 import { StatusTag } from "@/components/StatusIcon";
 import { TabPanel, TabStrip, TabStripItem } from "@/components/TabStrip";
 import { Button } from "@/components/ui/button";
@@ -443,6 +443,19 @@ function MatterTab({
    */
   const [closingTo, setClosingTo] = useState<CaseStatus | null>(null);
 
+  // Same reason as the case brief below: without an error branch this skeleton
+  // is a one-way door. The page above handles the failure, but a tab is mounted
+  // independently of whether the page has decided anything, so it needs its own.
+  if (query.error) {
+    return (
+      <ErrorState
+        title="This matter could not be read"
+        message={query.error.message}
+        onRetry={() => void utils.caseManagement.getById.invalidate()}
+      />
+    );
+  }
+
   if (!matter) {
     return (
       <LoadingState label="The matter">
@@ -457,7 +470,28 @@ function MatterTab({
   const canEscalate = can(role, "matter:escalate");
   const canFlag = can(role, "matter:flag");
 
+  /**
+   * Whether a change to this matter is in flight.
+   *
+   * These six controls save as they are changed, with no separate save button,
+   * so there was no moment at which a second change could not be made. Every one
+   * of them stayed live while the previous write was still going: selecting a new
+   * status a second time fired a second mutation, and because both carried the
+   * whole matter rather than just the field, whichever landed last won — so an
+   * officer correcting a typo could silently undo the status change they had
+   * just made.
+   *
+   * Disabling is the answer rather than queueing, because these are independent
+   * fields and a queued edit would land after the officer had already moved on.
+   * Holding the control until the first write settles keeps one writer at a time.
+   */
+  const updating = update.isPending;
+
   const send = (fields: Record<string, unknown>) => {
+    // Belt and braces with the `disabled` on each control: `send` is also the
+    // path a keyboard or programmatic change arrives by, and two writes to the
+    // same matter is the thing being prevented.
+    if (update.isPending) return;
     update.mutate({ id, ...fields } as Parameters<typeof update.mutate>[0]);
   };
 
@@ -473,6 +507,7 @@ function MatterTab({
             role={role}
             label="Status"
             disabled={!canUpdate}
+            busy={updating}
           >
             <select
               id="status"
@@ -487,7 +522,7 @@ function MatterTab({
                 setClosingTo(null);
                 send({ status: next });
               }}
-              disabled={!canUpdate}
+              disabled={!canUpdate || updating}
               className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm disabled:opacity-60"
             >
               {STATUS_VALUES.map(value => (
@@ -503,12 +538,13 @@ function MatterTab({
             role={role}
             label="Assigned officer"
             disabled={!canUpdate}
+            busy={updating}
           >
             <Input
               id="assigned-officer"
               name="assignedOfficerName"
               defaultValue={matter.assignedOfficerName ?? ""}
-              disabled={!canUpdate}
+              disabled={!canUpdate || updating}
               placeholder="Unassigned"
               onBlur={event => {
                 const next = event.target.value.trim();
@@ -528,13 +564,14 @@ function MatterTab({
             label="Due date"
             disabled={!canUpdate}
             hint="A matter should not remain indefinitely with an officer."
+            busy={updating}
           >
             <Input
               id="due-date"
               name="dueDate"
               type="date"
               defaultValue={toDateInputValue(matter.dueDate)}
-              disabled={!canUpdate}
+              disabled={!canUpdate || updating}
               onChange={event =>
                 send({
                   // `parseDateInput`, not `new Date(...)`: a date-only ISO string
@@ -556,12 +593,13 @@ function MatterTab({
             label="Priority"
             disabled={!canUpdate}
             hint="Urgent matters appear in the Director's weekly brief."
+            busy={updating}
           >
             <select
               id="priority"
               name="priority"
               value={matter.priority}
-              disabled={!canUpdate}
+              disabled={!canUpdate || updating}
               onChange={event =>
                 send({ priority: event.target.value as "normal" | "urgent" })
               }
@@ -580,12 +618,13 @@ function MatterTab({
             label="Action required"
             disabled={!canUpdate}
             hint="Required before the matter moves beyond 'Newly received', and before it can be closed."
+            busy={updating}
           >
             <Textarea
               id="action-required"
               name="actionRequired"
               defaultValue={matter.actionRequired ?? ""}
-              disabled={!canUpdate}
+              disabled={!canUpdate || updating}
               rows={3}
               onBlur={event => {
                 const next = event.target.value.trim();
@@ -625,12 +664,13 @@ function MatterTab({
           label="Escalation level"
           disabled={!canEscalate}
           hint={ESCALATION_LEVELS[matter.escalationLevel]?.description}
+          busy={updating}
         >
           <select
             id="escalation-level"
             name="escalationLevel"
             value={matter.escalationLevel}
-            disabled={!canEscalate}
+            disabled={!canEscalate || updating}
             onChange={event =>
               send({ escalationLevel: Number(event.target.value) })
             }
@@ -1722,6 +1762,23 @@ function BriefTab({
     setDecisionRequired(matter.decisionRequired);
   }
 
+  /*
+   * The error branch is not decoration. This reads the same query key as the
+   * page above it, so it is one request and not three, but it had only a `!data`
+   * fallback: once the query had failed, the tab drew a skeleton with no exit
+   * from it, so a failed refetch left the officer looking at a loading panel
+   * that was never going to resolve and gave them nothing to press.
+   */
+  if (query.error) {
+    return (
+      <ErrorState
+        title="This matter could not be read"
+        message={query.error.message}
+        onRetry={() => void utils.caseManagement.getById.invalidate()}
+      />
+    );
+  }
+
   if (!matter || !values) {
     return (
       <LoadingState label="The case brief">
@@ -1909,6 +1966,7 @@ function Gate({
   label,
   hint,
   disabled,
+  busy,
   children,
 }: {
   capability: Capability;
@@ -1916,11 +1974,26 @@ function Gate({
   label: string;
   hint?: string;
   disabled: boolean;
+  /**
+   * A write this control owns is in flight. Separate from `disabled`, which
+   * means the officer lacks the capability: one renders a refusal and the other
+   * renders progress, and showing a refusal for a save that is merely in flight
+   * would be nonsense.
+   */
+  busy?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <label className="block space-y-1.5">
-      <span className="text-xs font-medium text-slate-700">{label}</span>
+    <label className="block space-y-1.5" aria-busy={busy || undefined}>
+      <span className="flex items-center gap-2 text-xs font-medium text-slate-700">
+        {label}
+        {busy ? (
+          <span className="inline-flex items-center gap-1 font-normal text-slate-500">
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            Saving
+          </span>
+        ) : null}
+      </span>
       {children}
       {hint ? (
         <span className="block text-xs text-slate-500">{hint}</span>

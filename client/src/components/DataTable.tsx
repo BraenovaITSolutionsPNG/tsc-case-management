@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ComponentProps, ReactNode } from "react";
 
@@ -190,9 +191,24 @@ export function EmptyRow({
  * reports screens. `tone` colours the figure rather than the label, so a red
  * number means a number the reader is meant to act on.
  */
+/**
+ * A row of figures.
+ *
+ * `loading` and `error` exist because a figure that has not arrived and a figure
+ * that is zero are the same picture, and on this platform they mean opposite
+ * things. A caller without them writes `figures?.overdue ?? 0`, which is correct
+ * arithmetic and a false claim: a request that failed renders a confident red
+ * `0` beside "Past their due date", which is a statement about the province made
+ * from no data at all. The register's summary is the case this was added for.
+ *
+ * The figures are never invented. Absent and errored are drawn as an em dash
+ * with the reason underneath, which says "not known" rather than "none".
+ */
 export function StatTable({
   items,
   className,
+  loading = false,
+  error = null,
 }: {
   items: {
     label: string;
@@ -201,30 +217,64 @@ export function StatTable({
     tone?: string;
   }[];
   className?: string;
+  /** No figures yet: draw the shape, not the numbers. */
+  loading?: boolean;
+  /** Why there are no figures. Wins over `loading`, since an error is not a wait. */
+  error?: ReactNode;
 }) {
+  // The error wins, and it has to: a failed request is also one that will never
+  // produce figures, so treating "loading" as the condition would leave a
+  // skeleton on screen permanently.
+  const waiting = loading && !error;
+
   return (
-    <div className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-4", className)}>
-      {items.map(item => (
-        <div
-          key={item.label}
-          className="rounded-lg border border-slate-200 bg-white p-4"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-            {item.label}
-          </p>
-          <p
-            className={cn(
-              "mt-1.5 text-2xl font-semibold tabular-nums",
-              item.tone ?? "text-slate-900"
-            )}
+    <div>
+      <div
+        aria-busy={waiting || undefined}
+        className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-4", className)}
+      >
+        {items.map(item => (
+          <div
+            key={item.label}
+            className="rounded-lg border border-slate-200 bg-white p-4"
           >
-            {item.value}
-          </p>
-          {item.detail ? (
-            <p className="mt-0.5 text-xs text-slate-600">{item.detail}</p>
-          ) : null}
-        </div>
-      ))}
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+              {item.label}
+            </p>
+            {waiting ? (
+              // The card's own shape, so the page does not resize when the
+              // figures land.
+              <div className="mt-1.5 space-y-1.5" aria-hidden>
+                <Skeleton className="h-7 w-12" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            ) : (
+              <>
+                <p
+                  className={cn(
+                    "mt-1.5 text-2xl font-semibold tabular-nums",
+                    // An errored figure is muted rather than toned: the colour is
+                    // a judgement about the province, and there is no province to
+                    // judge.
+                    error ? "text-slate-400" : (item.tone ?? "text-slate-900")
+                  )}
+                >
+                  {error ? "—" : item.value}
+                </p>
+                {item.detail ? (
+                  <p className="mt-0.5 text-xs text-slate-600">{item.detail}</p>
+                ) : null}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {error ? (
+        <p role="alert" className="mt-2 text-xs text-red-700">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
