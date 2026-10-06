@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useRouteNavigate } from "@/hooks/useRouteNavigate";
 import { CaseMonitoringBoard } from "@/components/CaseMonitoringBoard";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -72,6 +73,11 @@ const VARIANT_COPY: Record<
 
 export default function Home() {
   const router = useRouter();
+  // Opening a matter from the monitoring board is a click on a matter rather
+  // than on a URL, so it goes through the navigating helper to announce the
+  // wait — this is one of the heavier renders in the platform, and it used to
+  // arrive with nothing said while it did.
+  const navigate = useRouteNavigate();
   // No `redirectOnUnauthenticated` here. That option force-launches the login
   // flow, which in development signs the visitor in as the dev owner without
   // them asking — so a signed-out officer landing here was silently given a
@@ -203,7 +209,7 @@ export default function Home() {
           recent={data.recent}
           overdue={data.overdueCases}
           closureMedianDays={data.closure.medianDays}
-          onCaseClick={id => router.push(`/cases/${id}`)}
+          onCaseClick={id => navigate(`/cases/${id}`)}
         />
 
         <p className="pb-4 text-center text-xs text-slate-500">

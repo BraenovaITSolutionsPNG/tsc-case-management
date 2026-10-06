@@ -21,6 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useRouteNavigate } from "@/hooks/useRouteNavigate";
 import {
   ClipboardList,
   FilePlus2,
@@ -187,7 +188,15 @@ export default function DashboardLayout({
     // The redirect above is already in flight; this is what it looks like for
     // the moment before the route changes.
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      // Announced, because this is the platform telling an officer their session
+      // has ended rather than the screen simply failing to draw — and because it
+      // can sit here for as long as the redirect takes, which is exactly the
+      // sort of wait that needs saying out loud.
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex min-h-screen items-center justify-center"
+      >
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Taking you to the sign-in page…
@@ -224,6 +233,9 @@ function DashboardLayoutContent({
   // wouter returned a `[path, navigate]` pair; App Router splits it.
   const location = usePathname();
   const router = useRouter();
+  // For the command palette, which is a list of routes rather than a list of
+  // anchors and so cannot be seen by the route-change bar's click listener.
+  const navigate = useRouteNavigate();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
@@ -459,7 +471,7 @@ function DashboardLayoutContent({
         items={permitted}
         onNavigate={path => {
           setPaletteOpen(false);
-          router.push(path);
+          navigate(path);
         }}
       />
     </>

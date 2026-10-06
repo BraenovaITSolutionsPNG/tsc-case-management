@@ -2,14 +2,10 @@
 
 import { Button } from "@/components/ui/button";
 import { AlertCircle, Home } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouteNavigate } from "@/hooks/useRouteNavigate";
 
 export default function NotFound() {
-  const router = useRouter();
-
-  const handleGoHome = () => {
-    router.push("/");
-  };
+  const navigate = useRouteNavigate();
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
@@ -38,7 +34,7 @@ export default function NotFound() {
           className="flex flex-col sm:flex-row gap-3 justify-center"
         >
           <Button
-            onClick={handleGoHome}
+            onClick={() => navigate("/")}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg transition-all duration-base shadow-md hover:shadow-lg"
           >
             <Home className="w-4 h-4 mr-2" />

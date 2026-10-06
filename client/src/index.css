@@ -346,4 +346,16 @@
     opacity: 0.6;
     transform: scaleX(0.8);
   }
+
+  /* The route-change bar needs this one more than the others. The rule above
+     stops its sweep, which leaves it parked at the transform its animation
+     starts from — `translateX(-100%)`, entirely off the left edge — so a
+     reduced-motion officer would be given a bar that is invisible and nothing
+     in its place. It is given a static pose instead, and since the sweep is
+     what makes the bar indeterminate, the static pose is the full width of the
+     track: work is under way and there is no honest fraction to report. */
+  .animate-loader-bar {
+    width: 100%;
+    transform: none;
+  }
 }

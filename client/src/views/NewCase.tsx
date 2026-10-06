@@ -4,6 +4,8 @@ import { CardPanel } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ErrorState, LoadingState } from "@/components/States";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
@@ -19,7 +21,7 @@ import {
 } from "@shared/matters";
 import { ShieldAlert, FilePlus2, ArrowLeft, Scale } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouteNavigate } from "@/hooks/useRouteNavigate";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -57,9 +59,10 @@ type Errors = Partial<
 >;
 
 export default function NewCase() {
-  const router = useRouter();
+  const navigate = useRouteNavigate();
   const utils = trpc.useUtils();
-  const { data: user } = trpc.auth.me.useQuery();
+  const me = trpc.auth.me.useQuery();
+  const user = me.data;
 
   const [dateReceived, setDateReceived] = useState(todayInputValue());
   const [province, setProvince] = useState("");
@@ -85,11 +88,50 @@ export default function NewCase() {
       }
       toast.success(`${created.caseNumber} registered.`);
       // Straight to the matter: the officer has just created the thing they are
-      // about to work on, and the next manual step is verification on it.
-      router.push(`/cases/${created.id}`);
+      // about to work on, and the next manual step is verification on it. It is
+      // a matter read in full, so it announces itself while it arrives.
+      navigate(`/cases/${created.id}`);
     },
     onError: error => toast.error(error.message, { duration: 8000 }),
   });
+
+  /*
+   * Both of these precede the capability check, because `user && !can(...)` is
+   * false while `user` is undefined. The form used to render — and be
+   * submittable — while the identity was still being resolved, so an officer
+   * with no capability could begin registering a matter and only be refused when
+   * the answer arrived. The server refuses the write either way, so nothing
+   * improper was recorded; what it cost was a form that accepted twenty fields
+   * before telling the officer they could not file anything.
+   *
+   * The error case is separate for the same reason as elsewhere: a request that
+   * failed is not a missing capability.
+   */
+  if (me.isPending) {
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <LoadingState label="Your account">
+            <Skeleton className="h-96 rounded-xl" />
+          </LoadingState>
+        </PageShell>
+      </DashboardLayout>
+    );
+  }
+
+  if (me.isError) {
+    return (
+      <DashboardLayout>
+        <PageShell>
+          <ErrorState
+            title="Your account could not be checked"
+            message={me.error?.message}
+            onRetry={() => void utils.auth.me.invalidate()}
+          />
+        </PageShell>
+      </DashboardLayout>
+    );
+  }
 
   if (user && !can(user.role, "matter:register")) {
     return (

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import { AppErrorBoundary } from "./error-boundary";
 import { PlatformPageLoader } from "@/components/PlatformPageLoader";
+import { RouteProgressBar } from "@/components/RouteProgressBar";
 import "@/index.css";
 
 /**
@@ -48,9 +49,19 @@ export const viewport: Viewport = {
  * the current screen stays up until the next one's paint commits, the
  * navigation items have already prefetched the payload behind each link,
  * and each screen keeps the inline skeletons it has for data that has
- * genuinely not arrived. The one wait a loader is kept for is the one
- * after a sign-in, which the sign-in screen itself draws until the
- * navigation commits.
+ * genuinely not arrived.
+ *
+ * What replaces it is `RouteProgressBar`: a two-pixel line across the top of
+ * the screen that only appears once a navigation has outrun a short delay.
+ * The two halves are the same decision taken twice. Most tab changes here
+ * commit in well under the delay, because the payload is prefetched behind
+ * the link, and the correct amount of feedback for a navigation that has
+ * already finished is none. The one that does not is the one that needs to be
+ * heard from — and it is told by an overlay rather than by a takeover, so it
+ * costs nothing on the tabs that did not need it.
+ *
+ * The one wait a *full-screen* loader is kept for is the one after a sign-in,
+ * which the sign-in screen itself draws until the navigation commits.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -61,6 +72,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               officer sees the bar and the error together, rather than a bar
               that stops because the screen it was heading for never arrived. */}
           <PlatformPageLoader />
+          {/* Alongside it rather than instead of it: this one is for a tab
+              change that is slow, that one is for a session ending. Neither
+              overlaps the other — the bar only follows a link click, and the
+              sign-in and sign-out waits are both driven by `router` calls the
+              bar deliberately ignores. */}
+          <RouteProgressBar />
           <Providers>{children}</Providers>
         </AppErrorBoundary>
       </body>
