@@ -188,6 +188,9 @@ export default function CaseRegister() {
   const summary = trpc.caseManagement.summary.useQuery();
   const figures = summary.data;
 
+  /** The completed matters, newest first, for the panel under the search. */
+  const recentlyClosed = trpc.caseManagement.recentlyClosed.useQuery();
+
   const canRegister = can(user?.role, "matter:register");
 
   return (
@@ -337,6 +340,61 @@ export default function CaseRegister() {
               </label>
             </div>
           ) : null}
+        </CardPanel>
+
+        <CardPanel
+          title="Recently closed"
+          description="Matters that have been completed, most recently first."
+        >
+          {recentlyClosed.isLoading ? (
+            <LoadingState label="Recently closed matters">
+              <SkeletonRows rows={3} />
+            </LoadingState>
+          ) : recentlyClosed.isError ? (
+            <p className="rounded-md border border-rose-200 bg-rose-50/40 px-4 py-3 text-sm text-rose-800">
+              Recently closed matters could not be loaded.
+            </p>
+          ) : (recentlyClosed.data ?? []).length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-500">
+              Nothing has been closed yet.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {(recentlyClosed.data ?? []).slice(0, 8).map(item => (
+                <li key={item.id}>
+                  <Link
+                    href={`/cases/${item.id}`}
+                    className="flex items-center gap-3 py-2 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-slate-500">
+                          {item.caseNumber}
+                        </span>
+                        <span className="truncate text-sm font-medium text-slate-900">
+                          {item.teacherName}
+                        </span>
+                        <StatusTag status={item.status} />
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Closed {formatDateOnly(item.dateClosed)}
+                        {item.daysToClose !== null
+                          ? ` · ${item.daysToClose} days to close`
+                          : ""}
+                        {item.communicatedByName
+                          ? ` · told to ${item.communicatedByName}`
+                          : ""}
+                      </p>
+                    </div>
+                    <Stamp
+                      className="h-4 w-4 shrink-0 text-slate-300"
+                      aria-hidden
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardPanel>
 
         <CardPanel

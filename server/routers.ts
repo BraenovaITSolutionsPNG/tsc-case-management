@@ -76,6 +76,7 @@ import {
   getWeeklyBrief,
   listAuditEventTypes,
   listActiveOfficerNames,
+  getRecentlyClosed,
   listAuditLog,
   listCases,
   listCasesPage,
@@ -708,6 +709,16 @@ export const appRouter = router({
      * must not be able to make the register report that nothing is overdue.
      */
     summary: protectedProcedure.query(() => summariseCases()),
+    /**
+     * The completed matters, most recently closed first.
+     *
+     * The register filters to them; this is the facade that surfaces the fact
+     * that matters finished, newest first, alongside the figure on the register
+     * that counts them. Same read the Director's desk uses, so the two agree.
+     */
+    recentlyClosed: protectedProcedure.query(async () =>
+      getRecentlyClosed(await listCases())
+    ),
     /**
      * The names the assignment picker offers on the registration form and the
      * matter itself.

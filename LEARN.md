@@ -247,7 +247,8 @@ due date, due within seven days, and not yet picked up, followed by the
 monitoring lists. For the Director it is a desk of the matters that are for him
 or raised to him (`dashboard.director`, built by `getDirectorDesk`): awaiting his
 decision (§12B flag or status `DEC`), escalated to his rung of the §14 ladder
-(level 2 and above), urgent, and overdue.
+(level 2 and above), urgent, overdue, and recently closed
+(`getRecentlyClosed`, also surfaced on the register screen).
 
 **The Case register** (`/cases`) is the working list. It shows every matter in
 the province — not a personal queue — and opens unfiltered, so nobody has to guess

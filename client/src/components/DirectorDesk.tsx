@@ -4,11 +4,13 @@ import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@server/routers";
 import { StatusTag } from "@/components/StatusIcon";
 import { cn } from "@/lib/utils";
+import { formatDateOnly } from "@/lib/dateInput";
 import { escalationLabel } from "@shared/delegation";
 import Link from "next/link";
 import { useState } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronRight,
   Gavel,
   Landmark,
@@ -39,7 +41,8 @@ type DeskRow =
   | Desk["awaitingDecision"][number]
   | Desk["raisedToDirector"][number]
   | Desk["urgent"][number]
-  | Desk["overdue"][number];
+  | Desk["overdue"][number]
+  | Desk["recentlyClosed"][number];
 
 function rowColumns(row: DeskRow): {
   id: number;
@@ -126,6 +129,28 @@ function rowColumns(row: DeskRow): {
     };
   }
 
+  if ("dateClosed" in row) {
+    return {
+      ...base,
+      right: (
+        <span className="shrink-0 rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium tabular-nums text-emerald-700">
+          {row.daysToClose === null ? "Closed" : `${row.daysToClose}d to close`}
+        </span>
+      ),
+      extra: (
+        <span className="flex items-center gap-1 text-slate-600">
+          <CheckCircle2 className="h-3 w-3" aria-hidden />
+          Closed {formatDateOnly(row.dateClosed)}
+          {row.communicatedByName ? (
+            <span className="text-slate-500">
+              · told to {row.communicatedByName}
+            </span>
+          ) : null}
+        </span>
+      ),
+    };
+  }
+
   return { ...base, right: null, extra: null };
 }
 
@@ -166,6 +191,13 @@ export function DirectorDesk({ desk }: { desk: Desk }) {
       icon: AlertTriangle,
       rows: desk.overdue,
       empty: "Nothing is past its due date.",
+    },
+    {
+      key: "recentlyClosed",
+      label: "Recently closed",
+      icon: CheckCircle2,
+      rows: desk.recentlyClosed,
+      empty: "No matters have been closed yet.",
     },
   ];
 

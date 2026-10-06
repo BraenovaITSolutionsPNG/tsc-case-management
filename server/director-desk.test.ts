@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDirectorDesk } from "./db";
+import { getDirectorDesk, getRecentlyClosed } from "./db";
 import type { Case } from "../drizzle/schema";
 
 /**
@@ -166,5 +166,52 @@ describe("getDirectorDesk · closed matters never reach the desk", () => {
       fixture({ escalationLevel: 2, status: "CLS", dateClosed: TEN_DAYS_AGO }),
     ]);
     expect(desk.raisedToDirector).toEqual([]);
+  });
+});
+
+describe("getRecentlyClosed", () => {
+  it("returns only completed matters", () => {
+    const closed = fixture({
+      id: 1,
+      status: "CLS",
+      dateClosed: TEN_DAYS_AGO,
+    });
+    const open = fixture({ id: 2, status: "INV", dateClosed: null });
+    expect(getRecentlyClosed([open, closed]).map(c => c.id)).toEqual([1]);
+  });
+
+  it("puts the most recently closed matter first", () => {
+    const older = fixture({ id: 1, status: "RES", dateClosed: TEN_DAYS_AGO });
+    const newer = fixture({ id: 2, status: "CLS", dateClosed: new Date() });
+    expect(getRecentlyClosed([older, newer]).map(c => c.id)).toEqual([2, 1]);
+  });
+
+  it("counts how long a matter took to close", () => {
+    const closed = fixture({
+      status: "CLS",
+      dateReceived: new Date(Date.now() - 10 * DAY),
+      dateClosed: new Date(Date.now() - DAY),
+    });
+    const [row] = getRecentlyClosed([closed]);
+    expect(row.daysToClose).toBe(9);
+  });
+
+  it("honours the limit", () => {
+    const many = Array.from({ length: 5 }, (_, index) =>
+      fixture({
+        id: index + 1,
+        status: "CLS",
+        dateClosed: new Date(Date.now() - (index + 1) * DAY),
+      })
+    );
+    expect(getRecentlyClosed(many, 3)).toHaveLength(3);
+  });
+
+  it("appears on the Director's desk with its own count", () => {
+    const desk = getDirectorDesk([
+      fixture({ status: "CLS", dateClosed: TEN_DAYS_AGO }),
+    ]);
+    expect(desk.recentlyClosed).toHaveLength(1);
+    expect(desk.counts.recentlyClosed).toBe(1);
   });
 });

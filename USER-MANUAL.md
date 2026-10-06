@@ -109,6 +109,7 @@ at the top:
 | **Raised to you**        | Matters escalated to level 2 (your rung of the §14 ladder) and above |
 | **Urgent**               | Matters marked urgent, plus any moved to *Escalated due to delay*    |
 | **Overdue**              | Open matters past their due date                                     |
+| **Recently closed**      | Completed matters, most recently closed first                        |
 
 The figures above the desk are counts of those four lists, so the number you act
 on first — matters awaiting your decision — is the one on top. The register, the

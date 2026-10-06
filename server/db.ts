@@ -863,6 +863,32 @@ function slimCase(item: Case) {
 }
 
 /**
+ * The completed matters, most recently closed first.
+ *
+ * The register shows closed matters if you filter for them, but nothing surfaces
+ * the fact that a matter *finished*: the board and the Director's desk are open
+ * matters only, and the sanctity of the register is nearly its whole point. So
+ * the closed set gets its own small list, newest first, ending where the open
+ * lists begin. Used by both the register's panel and the Director's desk, so
+ * the two agree about what "recently closed" means.
+ */
+export function getRecentlyClosed(allCases: Case[], limit = 20) {
+  return allCases
+    .filter(
+      (item): item is Case & { dateClosed: Date } =>
+        ["RES", "CLS"].includes(item.status) && !!item.dateClosed
+    )
+    .map(item => ({
+      ...slimCase(item),
+      dateClosed: item.dateClosed,
+      communicatedByName: item.communicatedByName,
+      daysToClose: daysBetween(item.dateReceived, item.dateClosed),
+    }))
+    .sort((a, b) => b.dateClosed.getTime() - a.dateClosed.getTime())
+    .slice(0, limit);
+}
+
+/**
  * §6 / §12C / §13F — the Director's desk: the matters that are for the Director
  * or have been raised to him. The overview a Director lands on leads with this
  * rather than the monitoring lists that belong to the officer and the PA, so
@@ -934,16 +960,20 @@ export function getDirectorDesk(allCases: Case[]) {
     }))
     .sort((a, b) => b.daysOverdue - a.daysOverdue);
 
+  const recentlyClosed = getRecentlyClosed(allCases);
+
   return {
     awaitingDecision,
     raisedToDirector,
     urgent,
     overdue,
+    recentlyClosed,
     counts: {
       awaitingDecision: awaitingDecision.length,
       raisedToDirector: raisedToDirector.length,
       urgent: urgent.length,
       overdue: overdue.length,
+      recentlyClosed: recentlyClosed.length,
     },
   };
 }
