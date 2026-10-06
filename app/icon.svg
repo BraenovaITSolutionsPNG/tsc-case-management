@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    The platform's own mark, at 16 pixels.
+
+    Three rules on a blue field, which is the case-file motif the branded loader
+    already animates (see BrandLoader.tsx and the loader-cascade keyframes in
+    index.css). Reusing it means the tab, the bookmark and the app launcher are
+    recognisably the same thing as the loading state an officer already knows.
+
+    Blue rather than the loader's teal, because this is the product mark and the
+    login screen's identity colour is the same blue: the login-wordmark and
+    login-action tokens in the palette published by Login.tsx.
+
+    Rules rather than the wordmark, because "tscmatters" is illegible at favicon
+    size and a tab is 16 pixels. Bars survive being shrunk; letterforms do not.
+  -->
+  <rect width="32" height="32" rx="7" fill="#1E3A8A" />
+  <g fill="#FFFFFF">
+    <rect x="7" y="10" width="18" height="3" rx="1.5" opacity="0.95" />
+    <rect x="7" y="15" width="14" height="3" rx="1.5" opacity="0.75" />
+    <rect x="7" y="20" width="10" height="3" rx="1.5" opacity="0.55" />
+  </g>
+</svg>
