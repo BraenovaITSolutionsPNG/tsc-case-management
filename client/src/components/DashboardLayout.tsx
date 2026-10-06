@@ -36,7 +36,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
-import { can, canAny, type Capability } from "@shared/access";
+import { can, canAny, dashboardFor, type Capability } from "@shared/access";
+import type { DashboardVariant } from "@shared/access";
 import type { Role } from "@shared/roles";
 import { Settings, Wrench } from "lucide-react";
 import {
@@ -62,14 +63,29 @@ const menuItems: {
   requires?: Capability;
   /** Held-in-any is the alternative: the item opens if the role holds one. */
   requiresAny?: readonly Capability[];
+  /**
+   * The dashboard variants the item is deliberately withheld from, even though
+   * the role could open it. The register and registration are the caseworker's
+   * day-to-day instruments; on the Director's variant the overview is the desk
+   * of matters raised to him, so the working list and the register form are not
+   * offered there. The capability gate still permits them — the reduction is
+   * about what the job is, not about refusing access.
+   */
+  hiddenFor?: readonly DashboardVariant[];
 }[] = [
   { icon: LayoutDashboard, label: "Overview", path: "/" },
-  { icon: ClipboardList, label: "Case register", path: "/cases" },
+  {
+    icon: ClipboardList,
+    label: "Case register",
+    path: "/cases",
+    hiddenFor: ["director"],
+  },
   {
     icon: FilePlus2,
     label: "Register matter",
     path: "/cases/new",
     requires: "matter:register",
+    hiddenFor: ["director"],
   },
   {
     icon: ShieldCheck,
@@ -95,7 +111,9 @@ const menuItems: {
 ];
 
 function permittedItems(role: Role | undefined) {
+  const variant = dashboardFor(role);
   return menuItems.filter(item => {
+    if (item.hiddenFor?.includes(variant)) return false;
     if (item.requiresAny) return canAny(role, item.requiresAny);
     return !item.requires || can(role, item.requires);
   });

@@ -232,12 +232,14 @@ export default function Home() {
           description={copy.description}
           icon={LayoutDashboard}
           action={
-            <Button asChild size="sm">
-              <Link href="/cases/new">
-                <FilePlus2 className="mr-2 h-4 w-4" />
-                Register matter
-              </Link>
-            </Button>
+            leadWithDirector ? undefined : (
+              <Button asChild size="sm">
+                <Link href="/cases/new">
+                  <FilePlus2 className="mr-2 h-4 w-4" />
+                  Register matter
+                </Link>
+              </Button>
+            )
           }
         />
 
