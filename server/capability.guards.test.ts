@@ -149,3 +149,28 @@ describe("platform:oversight reaches the data its own screen needs", () => {
     });
   });
 });
+
+describe("officerNames reaches the register form it fills", () => {
+  it("serves a staff officer registering a matter", async () => {
+    // The registration form's assignment picker must not depend on a platform
+    // capability: a provincial officer holds matter:register and nothing else.
+    expect(can("staff", "matter:register")).toBe(true);
+    expect(can("staff", "platform:oversight")).toBe(false);
+
+    const caller = appRouter.createCaller(contextFor("staff"));
+    // Resolves — to an empty list, because there is no database here. What
+    // matters is that it resolves at all, and that a tier without any platform
+    // capability is not refused the picker on the very form it fills.
+    await expect(caller.caseManagement.officerNames()).resolves.toBeDefined();
+  });
+
+  it("refuses a signed-out visitor", async () => {
+    // `createCaller` with a null user: the route is not for anonymous use, and
+    // the roster of officer names should not be readable by a visitor.
+    const ctx = contextFor("staff");
+    const caller = appRouter.createCaller({ ...ctx, user: null });
+    await expect(caller.caseManagement.officerNames()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+  });
+});

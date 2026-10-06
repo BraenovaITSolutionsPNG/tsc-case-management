@@ -1500,6 +1500,36 @@ export async function listProvinces() {
     .sort();
 }
 
+/**
+ * The officers the assignment pickers offer: every account that can still sign
+ * in, by name.
+ *
+ * Deliberately not `listOfficers` above. That one reads the names off matters
+ * already in the register, which is the right question for an oversight screen
+ * reassigning history, and the wrong one for choosing who takes a matter next:
+ * an officer who has never been assigned anything would be missing from it, an
+ * officer who has left would still be offered, and neither is true of the
+ * account list. Deactivated accounts are excluded for the same reason - a name
+ * that no longer answers for anything is not an assignment.
+ *
+ * Returns names, not ids: the register carries the officer as a name because
+ * that is what the file shows, and `findUserIdByName` derives the id on the
+ * write. A name typed that matches no account stays valid and resolves to a
+ * null id, which is the documented behaviour for an officer without one.
+ */
+export async function listActiveOfficerNames() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.isActive, true))
+    .orderBy(users.name);
+  return rows
+    .map(row => row.name)
+    .filter((name): name is string => Boolean(name));
+}
+
 /** Officers currently carrying matters, for the oversight reassignment picker. */
 export async function listOfficers() {
   const db = await getDb();

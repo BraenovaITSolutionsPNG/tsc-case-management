@@ -7,6 +7,7 @@ import { ReferMatterDialog } from "@/components/ReferMatterDialog";
 import { ErrorState, LoadingState } from "@/components/States";
 import { StatusTag } from "@/components/StatusIcon";
 import { TabPanel, TabStrip, TabStripItem } from "@/components/TabStrip";
+import { OfficerInput } from "@/components/OfficerInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -540,7 +541,7 @@ function MatterTab({
             disabled={!canUpdate}
             busy={updating}
           >
-            <Input
+            <OfficerInput
               id="assigned-officer"
               name="assignedOfficerName"
               defaultValue={matter.assignedOfficerName ?? ""}

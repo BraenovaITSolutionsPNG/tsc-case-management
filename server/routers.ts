@@ -75,6 +75,7 @@ import {
   getUserReferences,
   getWeeklyBrief,
   listAuditEventTypes,
+  listActiveOfficerNames,
   listAuditLog,
   listCases,
   listCasesPage,
@@ -707,6 +708,25 @@ export const appRouter = router({
      * must not be able to make the register report that nothing is overdue.
      */
     summary: protectedProcedure.query(() => summariseCases()),
+    /**
+     * The names the assignment picker offers on the registration form and the
+     * matter itself.
+     *
+     * Its own procedure rather than `admin.officers`, which is deliberately
+     * gated on `platform:oversight` for the oversight screen's reassignment
+     * control: a provincial officer registering a matter holds `matter:register`
+     * and no platform capability at all, so that route would refuse the picker
+     * on the very screen it exists for. Gated here on `matter:register`, which
+     * every tier that can assign an officer holds.
+     *
+     * Free text is still accepted alongside it - the register carries an
+     * officer as a name, and a name with no account behind it is a valid
+     * assignment that resolves to a null id rather than an error. This list is
+     * a convenience, not a validation rule.
+     */
+    officerNames: requireCapability("matter:register").query(() =>
+      listActiveOfficerNames()
+    ),
     getById: protectedProcedure
       .input(z.object({ id: recordId() }))
       .query(({ input }) => getCaseById(input.id)),

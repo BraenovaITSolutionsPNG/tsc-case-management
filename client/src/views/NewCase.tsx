@@ -2,6 +2,7 @@
 
 import { CardPanel } from "@/components/DataTable";
 import DashboardLayout from "@/components/DashboardLayout";
+import { OfficerInput } from "@/components/OfficerInput";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingState } from "@/components/States";
@@ -383,7 +384,7 @@ export default function NewCase() {
                   label="Assigned officer"
                   hint="No registered matter should remain without an owner."
                 >
-                  <Input
+                  <OfficerInput
                     id="assigned-officer"
                     name="assignedOfficerName"
                     value={assignedOfficerName}
