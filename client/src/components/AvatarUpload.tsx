@@ -143,11 +143,19 @@ export function AvatarUpload({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
+            aria-busy={uploading || undefined}
             className={cn(
               "inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             )}
           >
-            <Camera className="h-3.5 w-3.5" />
+            {/* Spinner while the upload runs, so the control does not simply go
+                dead. The overlay on the photograph announces the same state,
+                but this is the button that was pressed. */}
+            {uploading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Camera className="h-3.5 w-3.5" aria-hidden />
+            )}
             Change photo
           </button>
           {avatarKey ? (
@@ -155,9 +163,14 @@ export function AvatarUpload({
               type="button"
               onClick={() => remove.mutate()}
               disabled={remove.isPending}
+              aria-busy={remove.isPending || undefined}
               className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              {remove.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              )}
               Remove
             </button>
           ) : null}

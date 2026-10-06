@@ -987,13 +987,25 @@ function ActivityTab({
             rows={2}
             placeholder="Record what you have done on this matter…"
           />
+          {/* Spinner while it writes.
+
+              This button was disabled and nothing else, so pressing it made it
+              go dead with no explanation — a control that stops working and
+              will not say why. The spinner keeps the label as the action's name,
+              which is the idiom the other five buttons on this matter already
+              use; `aria-busy` is what says it out loud.
+            */}
           <Button
             size="sm"
             disabled={add.isPending || note.trim().length < 2}
+            aria-busy={add.isPending || undefined}
             onClick={() =>
               add.mutate({ caseId, eventType: "note", note: note.trim() })
             }
           >
+            {add.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+            ) : null}
             Add note
           </Button>
         </div>

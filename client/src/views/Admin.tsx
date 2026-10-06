@@ -819,29 +819,50 @@ function AuditTab() {
         total ? `${total} ${total === 1 ? "entry" : "entries"} match.` : ""
       }`}
       action={
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            id="audit-search"
-            name="search"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search notes, refs, teachers, actors"
-            className="h-8 w-64 text-[13px]"
-          />
-          <Select value={eventType} onValueChange={setEventType}>
-            <SelectTrigger className="h-8 w-48 text-[13px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All event types</SelectItem>
-              {(types.data ?? []).map(value => (
-                <SelectItem key={value} value={value}>
-                  {value.replace(/_/g, " ")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              id="audit-search"
+              name="search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search notes, refs, teachers, actors"
+              className="h-8 w-64 text-[13px]"
+            />
+            {/*
+              Held while the list arrives, and refused outright if it never does.
+
+              `(types.data ?? []).map(...)` renders an empty menu for a request
+              that failed, which is indistinguishable from a filter that has
+              nothing to offer — and a filter that silently narrows the audit
+              trail is worse than one that admits it cannot be read.
+            */}
+            <Select
+              value={eventType}
+              onValueChange={setEventType}
+              disabled={types.isPending || types.isError}
+            >
+              <SelectTrigger className="h-8 w-48 text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All event types</SelectItem>
+                {(types.data ?? []).map(value => (
+                  <SelectItem key={value} value={value}>
+                    {value.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {types.isError ? (
+            <p role="alert" className="mt-2 text-xs text-rose-700">
+              The event types could not be read, so this filter is unavailable.
+              The trail itself is unaffected — clear the filter to see every
+              entry.
+            </p>
+          ) : null}
+        </>
       }
     >
       {audit.isLoading ? (
@@ -1040,9 +1061,21 @@ function OversightTab() {
             placeholder="Case reference or teacher"
             className="h-8 w-52 text-[13px]"
           />
-          <Select value={province} onValueChange={setProvince}>
+          {/* Held while loading, refused on failure — the same reason as the
+              event-type filter above: an empty menu from a failed request reads
+              as "every province", which is the one reading that must never be
+              wrong by accident. */}
+          <Select
+            value={province}
+            onValueChange={setProvince}
+            disabled={provinces.isPending || provinces.isError}
+          >
             <SelectTrigger className="h-8 w-52 text-[13px]">
-              <SelectValue placeholder="All provinces" />
+              <SelectValue
+                placeholder={
+                  provinces.isPending ? "Loading provinces…" : "All provinces"
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               {(provinces.data ?? []).map(value => (
@@ -1052,6 +1085,12 @@ function OversightTab() {
               ))}
             </SelectContent>
           </Select>
+          {provinces.isError ? (
+            <p role="alert" className="w-full text-xs text-rose-700">
+              The province list could not be read, so the filter is unavailable.
+              Every province is still listed below.
+            </p>
+          ) : null}
         </div>
       }
     >
@@ -1149,7 +1188,13 @@ function OversightTab() {
                         // one. Empty string is what shows the placeholder, which
                         // is the right reading for an unassigned matter.
                         value={item.assignedOfficerName ?? ""}
-                        disabled={reassign.isPending}
+                        // Held while the officer list arrives, and while a
+                        // reassignment is in flight. An empty Reassign menu
+                        // used to mean either "no officers exist" or "the
+                        // request failed", and on a supervisory control that
+                        // difference matters: the first is a policy fact, the
+                        // second is a fault.
+                        disabled={reassign.isPending || officers.isPending}
                         onValueChange={value =>
                           reassign.mutate({
                             id: item.id,
@@ -1158,7 +1203,11 @@ function OversightTab() {
                         }
                       >
                         <SelectTrigger className="h-9 w-40">
-                          <SelectValue placeholder="Reassign" />
+                          <SelectValue
+                            placeholder={
+                              officers.isPending ? "Loading…" : "Reassign"
+                            }
+                          />
                         </SelectTrigger>
                         <SelectContent>
                           {(officers.data ?? []).map(value => (
