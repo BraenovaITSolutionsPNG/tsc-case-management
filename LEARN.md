@@ -241,8 +241,13 @@ _(`/guide` in the app is the short officer-facing version of this section. Note 
 currently says "username" where the sign-in screen asks for an email address —
 worth correcting.)_
 
-**The Overview** (`/`) is the daily landing page: matters on the register, past
-their due date, due within seven days, and not yet picked up.
+**The Overview** (`/`) is the daily landing page, and it changes with the role.
+For officers and the Professional Assistant: matters on the register, past their
+due date, due within seven days, and not yet picked up, followed by the
+monitoring lists. For the Director it is a desk of the matters that are for him
+or raised to him (`dashboard.director`, built by `getDirectorDesk`): awaiting his
+decision (§12B flag or status `DEC`), escalated to his rung of the §14 ladder
+(level 2 and above), urgent, and overdue.
 
 **The Case register** (`/cases`) is the working list. It shows every matter in
 the province — not a personal queue — and opens unfiltered, so nobody has to guess

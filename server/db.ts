@@ -672,6 +672,7 @@ export async function getDashboardData() {
     provinceCounts,
     overdueByProvince,
     monitoring,
+    director: getDirectorDesk(allCases),
     intakeByMonth: getMonthlyIntake(allCases),
     closure: getClosureStats(allCases),
     recent: allCases.slice(0, 6),
@@ -858,6 +859,92 @@ function slimCase(item: Case) {
     matterType: item.matterType,
     status: item.status,
     assignedOfficerName: item.assignedOfficerName,
+  };
+}
+
+/**
+ * §6 / §12C / §13F — the Director's desk: the matters that are for the Director
+ * or have been raised to him. The overview a Director lands on leads with this
+ * rather than the monitoring lists that belong to the officer and the PA, so
+ * his screen is his inbox, not the whole province's.
+ *
+ * A pure function of the cases passed in — no referrals, no database — because
+ * none of the four lists needs a join, and a pure function is one that can be
+ * unit-tested without a connection. It is read from the same `allCases` as the
+ * rest of the dashboard, so the counts on the desk agree with the figures
+ * beside them.
+ *
+ * What counts as "for the Director":
+ *   awaitingDecision  — flagged §12B, or already sitting at DEC. The same pair
+ *     `briefNeedsDecision` states and the weekly brief's §F reads.
+ *   raisedToDirector  — the §14 ladder at level 2 or higher. Level 2 is
+ *     "Director, Provincial Matters — requires the Director's decision or
+ *     intervention". Levels 3-6 have left the province but still sit on his
+ *     watch, so they are listed with their rung rather than hidden.
+ *   urgent            — priority "urgent", or promoted to ESC; the same pair the
+ *     weekly brief's §A surfaces.
+ *   overdue           — still open and past its due date.
+ */
+export function getDirectorDesk(allCases: Case[]) {
+  const open = allCases.filter(item => isOpenStatus(item.status));
+  const now = new Date();
+
+  const awaitingDecision = open
+    .filter(item => briefNeedsDecision(item.decisionRequired, item.status))
+    .map(item => ({
+      ...slimCase(item),
+      hasBrief: Boolean(item.briefIssue),
+      issueRequiringDecision:
+        item.briefIssueRequiringDecision ?? item.actionRequired,
+      recommendation: item.briefRecommendation,
+      daysOutstanding: daysOutstanding(item.dueDate),
+    }))
+    .sort(
+      (a, b) =>
+        Number(a.hasBrief) - Number(b.hasBrief) ||
+        b.daysOutstanding - a.daysOutstanding
+    );
+
+  const raisedToDirector = open
+    .filter(item => item.escalationLevel >= 2)
+    .map(item => ({
+      ...slimCase(item),
+      escalationLevel: item.escalationLevel,
+      daysOpen: daysBetween(item.dateReceived, now) ?? 0,
+    }))
+    .sort(
+      (a, b) => a.escalationLevel - b.escalationLevel || b.daysOpen - a.daysOpen
+    );
+
+  const urgent = open
+    .filter(item => item.priority === "urgent" || item.status === "ESC")
+    .map(item => ({
+      ...slimCase(item),
+      daysOverdue: daysOverdue(item.dueDate),
+    }))
+    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+  const overdue = open
+    .filter(
+      item => item.dueDate && new Date(item.dueDate).getTime() < now.getTime()
+    )
+    .map(item => ({
+      ...slimCase(item),
+      daysOverdue: daysOverdue(item.dueDate),
+    }))
+    .sort((a, b) => b.daysOverdue - a.daysOverdue);
+
+  return {
+    awaitingDecision,
+    raisedToDirector,
+    urgent,
+    overdue,
+    counts: {
+      awaitingDecision: awaitingDecision.length,
+      raisedToDirector: raisedToDirector.length,
+      urgent: urgent.length,
+      overdue: overdue.length,
+    },
   };
 }
 

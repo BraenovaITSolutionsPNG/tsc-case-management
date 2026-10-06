@@ -83,7 +83,9 @@ you — which matters most on a shared machine. You land on `/login`.
 
 ### 2.1 Overview (`/`)
 
-Your landing page. Four figures, each a link into the matters behind it:
+Your landing page, and it changes with your role.
+
+**For officers and the Professional Assistant**, four figures, each a link into the matters behind it:
 
 | Figure                      | Meaning                                       |
 | --------------------------- | --------------------------------------------- |
@@ -96,6 +98,21 @@ Your landing page. Four figures, each a link into the matters behind it:
 counted across the whole province, separately from any filter you have applied.
 That is deliberate: a filter that hid overdue matters must not make the province
 look like it has none.
+
+**For the Director**, the overview is a desk of the matters that are *for you or
+have been raised to you* — not the whole register. Four lists, switched between
+at the top:
+
+| List                     | What is in it                                                        |
+| ------------------------ | -------------------------------------------------------------------- |
+| **Awaiting your decision** | Matters flagged under §12B, plus any sitting at status *Awaiting decision* |
+| **Raised to you**        | Matters escalated to level 2 (your rung of the §14 ladder) and above |
+| **Urgent**               | Matters marked urgent, plus any moved to *Escalated due to delay*    |
+| **Overdue**              | Open matters past their due date                                     |
+
+The figures above the desk are counts of those four lists, so the number you act
+on first — matters awaiting your decision — is the one on top. The register, the
+reports and the administration screens stay available from the menu.
 
 ### 2.2 Case register (`/cases`)
 

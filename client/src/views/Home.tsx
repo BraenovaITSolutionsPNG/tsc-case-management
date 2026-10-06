@@ -5,6 +5,7 @@ import { useRouteNavigate } from "@/hooks/useRouteNavigate";
 import { CaseMonitoringBoard } from "@/components/CaseMonitoringBoard";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import DashboardLayout from "@/components/DashboardLayout";
+import { DirectorDesk } from "@/components/DirectorDesk";
 import { PageHeader, PageShell } from "@/components/PageHeader";
 import { StatCards } from "@/components/StatCards";
 import { StatusTag } from "@/components/StatusIcon";
@@ -20,13 +21,17 @@ import {
   ChevronRight,
   FilePlus2,
   FolderOpen,
+  Gavel,
   Inbox,
+  Landmark,
   LayoutDashboard,
+  Scale,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { toast } from "sonner";
+import type { LucideIcon } from "lucide-react";
 
 /**
  * The overview.
@@ -58,10 +63,10 @@ const VARIANT_COPY: Record<
     description: "The six lists the manual requires, and the matters in each.",
   },
   director: {
-    eyebrow: "Oversight",
-    title: "Oversight",
+    eyebrow: "Your desk",
+    title: "Matters raised to you",
     description:
-      "Every open matter in the province, and those requiring your decision.",
+      "The matters awaiting your decision, and those that need your eye.",
   },
   platform: {
     eyebrow: "System-wide",
@@ -141,10 +146,82 @@ export default function Home() {
   // claiming there is nothing waiting.
   const monitoring = data.monitoring;
   const newMatters = monitoring?.counts.newMatters ?? 0;
+  const directorCounts = data.director.counts;
 
-  // The Director's variant leads with the decision list because that is the
-  // part of the screen they act on; everyone else leads with the counts.
-  const leadWithMonitoring = variant === "assistant" || variant === "director";
+  // The Director variant leads with the desk of matters raised to him;
+  // the Assistant leads with the monitoring lists; the officer with the charts
+  // and then the lists. Each is the part of the screen that role acts on.
+  const leadWithDirector = variant === "director";
+  const leadWithMonitoring = variant === "assistant";
+
+  const stats: {
+    label: string;
+    value: number;
+    icon: LucideIcon;
+    tone?: "default" | "alert" | "warning" | "good";
+    hint?: string;
+  }[] = leadWithDirector
+    ? [
+        {
+          label: "Awaiting your decision",
+          value: directorCounts.awaitingDecision,
+          icon: Gavel,
+          tone: directorCounts.awaitingDecision > 0 ? "alert" : "good",
+          hint:
+            directorCounts.awaitingDecision > 0
+              ? "Needs a decision"
+              : "Nothing waiting",
+        },
+        {
+          label: "Raised to your level",
+          value: directorCounts.raisedToDirector,
+          icon: Landmark,
+          tone: directorCounts.raisedToDirector > 0 ? "warning" : "default",
+        },
+        {
+          label: "Urgent matters",
+          value: directorCounts.urgent,
+          icon: Scale,
+          tone: directorCounts.urgent > 0 ? "warning" : "default",
+          hint: "In the weekly brief",
+        },
+        {
+          label: "Overdue",
+          value: directorCounts.overdue,
+          icon: AlertTriangle,
+          tone: directorCounts.overdue > 0 ? "alert" : "good",
+          hint:
+            directorCounts.overdue > 0 ? "Needs attention" : "Nothing is late",
+        },
+      ]
+    : [
+        {
+          label: "Matters on the register",
+          value: data.totals.all,
+          icon: FolderOpen,
+          hint: `${data.totals.active} still open`,
+        },
+        {
+          label: "Past their due date",
+          value: data.totals.overdue,
+          icon: AlertTriangle,
+          tone: data.totals.overdue > 0 ? "alert" : "good",
+          hint: data.totals.overdue > 0 ? "Needs attention" : "Nothing is late",
+        },
+        {
+          label: "Due within seven days",
+          value: data.totals.dueSoon,
+          icon: CalendarClock,
+          tone: data.totals.dueSoon > 0 ? "warning" : "default",
+        },
+        {
+          label: "Not yet picked up",
+          value: newMatters,
+          icon: Inbox,
+          tone: newMatters > 0 ? "warning" : "good",
+          hint: "Awaiting first action",
+        },
+      ];
 
   return (
     <DashboardLayout>
@@ -164,39 +241,11 @@ export default function Home() {
           }
         />
 
-        <StatCards
-          stats={[
-            {
-              label: "Matters on the register",
-              value: data.totals.all,
-              icon: FolderOpen,
-              hint: `${data.totals.active} still open`,
-            },
-            {
-              label: "Past their due date",
-              value: data.totals.overdue,
-              icon: AlertTriangle,
-              tone: data.totals.overdue > 0 ? "alert" : "good",
-              hint:
-                data.totals.overdue > 0 ? "Needs attention" : "Nothing is late",
-            },
-            {
-              label: "Due within seven days",
-              value: data.totals.dueSoon,
-              icon: CalendarClock,
-              tone: data.totals.dueSoon > 0 ? "warning" : "default",
-            },
-            {
-              label: "Not yet picked up",
-              value: newMatters,
-              icon: Inbox,
-              tone: newMatters > 0 ? "warning" : "good",
-              hint: "Awaiting first action",
-            },
-          ]}
-        />
+        <StatCards stats={stats} />
 
-        {leadWithMonitoring ? (
+        {leadWithDirector ? (
+          <DirectorDesk desk={data.director} />
+        ) : leadWithMonitoring ? (
           <CaseMonitoringBoard monitoring={monitoring} />
         ) : (
           <>
@@ -205,12 +254,14 @@ export default function Home() {
           </>
         )}
 
-        <RecentMatters
-          recent={data.recent}
-          overdue={data.overdueCases}
-          closureMedianDays={data.closure.medianDays}
-          onCaseClick={id => navigate(`/cases/${id}`)}
-        />
+        {leadWithDirector ? null : (
+          <RecentMatters
+            recent={data.recent}
+            overdue={data.overdueCases}
+            closureMedianDays={data.closure.medianDays}
+            onCaseClick={id => navigate(`/cases/${id}`)}
+          />
+        )}
 
         <p className="pb-4 text-center text-xs text-slate-500">
           Figures reflect the register at the time of loading.
