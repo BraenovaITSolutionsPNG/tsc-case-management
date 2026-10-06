@@ -21,6 +21,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  */
 
 const AUTH_USER_ID = "4e47a4b5-9793-4a01-9995-b00a5efbd271";
+const SESSION_ID = "9c1f6d20-0b3a-4f7e-8c11-a2d5e6f70819";
 
 const db = {
   getDb: vi.fn(),
@@ -30,14 +31,31 @@ const db = {
 
 vi.mock("./db", () => db);
 
+/**
+ * A syntactically valid JWT, because the session id is read out of its payload
+ * and an unreadable one would silently answer null for every device.
+ */
+const ACCESS_TOKEN = [
+  Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT" })).toString(
+    "base64url"
+  ),
+  Buffer.from(
+    JSON.stringify({ sub: AUTH_USER_ID, session_id: SESSION_ID })
+  ).toString("base64url"),
+  "signature",
+].join(".");
+
 const serverClient = {
   auth: {
-    getUser: vi.fn(),
-    // `authenticateSupabaseRequest` reads the session as well, for the
-    // session id that tells one signed-in device from another. It reads
-    // the cookie this process already has, so a null session is the
-    // honest answer for these scenarios: none of them carries a token.
+    // The session is read first and off the cookie this process already has, so
+    // a null session is the honest answer for an anonymous scenario — and it is
+    // what lets an anonymous request skip verification of every kind.
     getSession: vi.fn(),
+    // `getUser` is declared so the assertion that it is *never* called has
+    // something to be about. It is the call that went to Supabase on every
+    // request; `getClaims` verifies the same signature against the cached JWKS.
+    getUser: vi.fn(),
+    getClaims: vi.fn(),
   },
 };
 
@@ -51,16 +69,26 @@ const { authenticateSupabaseRequest } = await import("./_core/supabaseSession");
 function scenario(options: {
   database: boolean;
   row?: Record<string, unknown> | null;
+  /** Default: the caller presented a token. */
+  signedIn?: boolean;
 }) {
+  const signedIn = options.signedIn ?? true;
+
   db.getDb.mockResolvedValue(options.database ? {} : null);
   db.getUserByAuthUserId.mockResolvedValue(options.row ?? undefined);
   db.touchLastSignedIn.mockResolvedValue(undefined);
-  serverClient.auth.getUser.mockResolvedValue({
-    data: { user: { id: AUTH_USER_ID } },
+
+  serverClient.auth.getSession.mockResolvedValue({
+    data: { session: signedIn ? { access_token: ACCESS_TOKEN } : null },
     error: null,
   });
-  serverClient.auth.getSession.mockResolvedValue({
-    data: { session: null },
+  serverClient.auth.getClaims.mockResolvedValue({
+    data: {
+      claims: { sub: AUTH_USER_ID },
+      header: {},
+      signature: new Uint8Array(),
+    },
+    error: null,
   });
 }
 
@@ -101,11 +129,7 @@ describe("a platform that cannot reach its database", () => {
     // session — a visitor who has not typed anything has accepted nothing, and
     // sending them away from a form that will work the moment the platform can
     // reach its database is the one outcome the refusal must not cause.
-    scenario({ database: false });
-    serverClient.auth.getUser.mockResolvedValue({
-      data: { user: null },
-      error: null,
-    });
+    scenario({ database: false, signedIn: false });
 
     expect(await authenticateSupabaseRequest()).toBeNull();
 
@@ -161,12 +185,136 @@ describe("a session that resolves", () => {
   it("answers null for a request with no session at all", async () => {
     // Not an error. Public procedures have to work for an anonymous visitor, and
     // the database being present is all this needs to know.
+    scenario({ database: true, signedIn: false });
+
+    expect(await authenticateSupabaseRequest()).toBeNull();
+
+    // And it costs nothing to say so: no token means nothing to verify, so the
+    // request never reaches the verification call at all. This is the sign-in
+    // screen's own traffic, and it is the reason the session is read first.
+    expect(serverClient.auth.getClaims).not.toHaveBeenCalled();
+    expect(db.getDb).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifying the token", () => {
+  it("checks the signature against the cached key set, never over the network", async () => {
+    scenario({
+      database: true,
+      row: { id: 1042, isActive: true, role: "staff" },
+    });
+
+    await authenticateSupabaseRequest();
+
+    // The whole point of the change, and the reason it is asserted rather than
+    // described: `getUser` sends a request to Supabase for every token, and a
+    // signed-in page load ran it once for the Server Component's render and again
+    // for every batched client query. `getClaims` verifies the same signature
+    // against the project's JWKS, which is fetched once and cached.
+    expect(serverClient.auth.getClaims).toHaveBeenCalledWith(ACCESS_TOKEN);
+    expect(serverClient.auth.getUser).not.toHaveBeenCalled();
+  });
+
+  it("names one signed-in device from another", async () => {
+    scenario({
+      database: true,
+      row: { id: 1042, isActive: true, role: "staff" },
+    });
+
+    // Read out of the token's payload, which is only safe because the signature
+    // above was verified first.
+    expect(await authenticateSupabaseRequest()).toMatchObject({
+      sessionId: SESSION_ID,
+    });
+  });
+
+  it("treats a token that will not verify as no token", async () => {
     scenario({ database: true });
+    serverClient.auth.getClaims.mockResolvedValue({
+      data: null,
+      error: {
+        __isAuthError: true,
+        name: "AuthInvalidJwtError",
+        message: "Invalid JWT signature",
+      },
+    });
+
+    // An expired or forged token — which a stale tab produces routinely — is not
+    // a hard error, it is "not signed in yet". The honest answer is null, and no
+    // network call is made to confirm a verdict we already have.
+    expect(await authenticateSupabaseRequest()).toBeNull();
+    expect(db.getDb).not.toHaveBeenCalled();
+    expect(serverClient.auth.getUser).not.toHaveBeenCalled();
+  });
+
+  it("asks Supabase when the key set could not be fetched", async () => {
+    // The marker and the name are both required: the library's own predicate is
+    // `isAuthError(e) && e.name === "AuthRetryableFetchError"`, and a mock
+    // carrying only the name would pass a test while proving nothing.
+    // The one failure mode that must not be read as a verdict. `getClaims`
+    // verifies against a key set it has to fetch on a cold start, so the first
+    // request after a deploy depends on that call — and a blip there would
+    // otherwise present as every officer signed out at once.
+    scenario({
+      database: true,
+      row: { id: 1042, isActive: true, role: "staff" },
+    });
+    serverClient.auth.getClaims.mockResolvedValue({
+      data: null,
+      error: {
+        __isAuthError: true,
+        name: "AuthRetryableFetchError",
+        message: "network",
+      },
+    });
     serverClient.auth.getUser.mockResolvedValue({
-      data: { user: null },
+      data: { user: { id: AUTH_USER_ID } },
       error: null,
     });
 
+    // Falls back rather than failing closed: the token is fine, we simply could
+    // not check it the fast way.
+    expect(await authenticateSupabaseRequest()).toMatchObject({
+      authUserId: AUTH_USER_ID,
+    });
+    expect(serverClient.auth.getUser).toHaveBeenCalledWith(ACCESS_TOKEN);
+  });
+
+  it("still answers null when the fallback is refused too", async () => {
+    // The fallback is a second opinion, not a way past a real refusal: if
+    // Supabase rejects the token as well, the token is no good.
+    scenario({ database: true });
+    serverClient.auth.getClaims.mockResolvedValue({
+      data: null,
+      error: {
+        __isAuthError: true,
+        name: "AuthRetryableFetchError",
+        message: "network",
+      },
+    });
+    serverClient.auth.getUser.mockResolvedValue({
+      data: null,
+      error: {
+        __isAuthError: true,
+        name: "AuthSessionMissingError",
+        message: "no session",
+      },
+    });
+
     expect(await authenticateSupabaseRequest()).toBeNull();
+    expect(db.getDb).not.toHaveBeenCalled();
+  });
+
+  it("treats claims with no subject as no token", async () => {
+    scenario({ database: true });
+    serverClient.auth.getClaims.mockResolvedValue({
+      data: { claims: {}, header: {}, signature: new Uint8Array() },
+      error: null,
+    });
+
+    // `sub` is the only claim used for identity, and it is the join to our own
+    // register row. Without it there is nobody to look up.
+    expect(await authenticateSupabaseRequest()).toBeNull();
+    expect(db.getUserByAuthUserId).not.toHaveBeenCalled();
   });
 });

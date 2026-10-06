@@ -218,19 +218,33 @@ function Illustration() {
 
 function LoginForm() {
   const router = useRouter();
-  const { isAuthenticated, loading, logout } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   // Null unless the server refused a session the browser holds: an identity
   // with no register row, or an account that has been deactivated. Null for an
   // ordinary anonymous visitor, which is why this is a second query rather than
   // a variant of `auth.me` — most people reaching this screen have no session,
   // and the answer they need is the form.
-  const refusal = trpc.auth.refusal.useQuery(undefined, {
-    enabled: !isAuthenticated && !loading,
-  }).data;
+  //
+  // Not gated. It used to be `enabled: !isAuthenticated && !loading`, which was
+  // a sequencing bug dressed as an optimisation: the gate could not open until
+  // `auth.me` had resolved, so the two queries ran one strictly after the other
+  // and cost two round trips where the `httpBatchLink` would have coalesced
+  // them into one. It is prefetched into the hydrated cache by the `/login`
+  // segment now, so this reads its answer from the cache and fetches nothing —
+  // but when it does refetch, the two belong in the same tick rather than in
+  // sequence, so the gate stays gone.
+  const refusal = trpc.auth.refusal.useQuery().data;
 
-  // An already-signed-in officer arriving here is sent on, to the overview. This
-  // is a client redirect rather than a server one because `/login` is a client
-  // component and the session lives in an httpOnly cookie this code cannot read.
+  // An already-signed-in officer arriving here is sent on, to the overview.
+  //
+  // This is a *fallback*. The `/login` segment resolves the session on the
+  // server and redirects before any HTML is sent, so by the time this screen
+  // mounts there is normally no session to find and this effect does nothing.
+  // It stays because the session can change under a page that is already open —
+  // signing in on a second tab, or an administrator signing the officer out
+  // mid-session — and there is nothing server-side that would notice. It is a
+  // client redirect rather than a server one only because the segment has
+  // already rendered by the time it would matter.
   useEffect(() => {
     if (isAuthenticated) router.replace(LANDING_PATH);
   }, [isAuthenticated, router]);
@@ -361,7 +375,25 @@ function LoginForm() {
     }
   };
 
-  if (loading || isAuthenticated) {
+  // Only once a session is *known* to exist, never merely while the probe for
+  // one is running.
+  //
+  // This was `loading || isAuthenticated`, and it was the reason the sign-in
+  // felt slow: every anonymous visitor — which is nearly everyone who opens
+  // this screen — had the whole form replaced by a full-screen branded loader
+  // for the duration of the `auth.me` request, before a single keystroke was
+  // possible. The form was made to wait on a question that cannot change the
+  // answer for a person with no session, which is nearly all of them.
+  //
+  // It is now `isAuthenticated` alone, and the ordering that question implies
+  // has been inverted twice over. The server already answered it before this
+  // screen mounted — `app/login/page.tsx` reads the session cookie, redirects a
+  // signed-in officer away, and ships this screen with the answer already in
+  // the hydrated cache — so the common case renders the form immediately with
+  // nothing fetched and nothing waited on. What is left of this branch is the
+  // rare officer who signs in on a second tab while this page is open, and for
+  // them the loader still covers the redirect.
+  if (isAuthenticated) {
     return <PageLoader label="Checking your session" />;
   }
 

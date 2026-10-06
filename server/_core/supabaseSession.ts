@@ -1,5 +1,6 @@
 import type { User } from "../../drizzle/schema";
 import { createServerClient } from "./supabaseAuth";
+import { isAuthRetryableFetchError } from "@supabase/auth-js";
 
 /**
  * The identity attached to a request, and the shape `auth.me` returns.
@@ -64,11 +65,11 @@ const LAST_SIGNED_IN_RESOLUTION_MS = 5 * 60_000;
  *     on every request, and the one place that cannot be forgotten is the one
  *     that builds the identity.
  *
- * `getUser` revalidates against Supabase on every call rather than trusting the
- * cookie's contents, which is what makes deleting or disabling an account take
- * effect immediately instead of at token expiry. It also means a refreshed
- * access token is written back through the cookie adapter as a side effect, so the
- * session survives without this app handling a token.
+ * The signature on the cookie is verified rather than trusted — see the
+ * verification call below for why that is `getClaims` and not a decode, and for
+ * the one thing it gives up. A refreshed access token is written back through the
+ * cookie adapter as a side effect, so the session survives without this app
+ * handling a token.
  *
  * The session is resolved *before* the database is asked whether it is there, and
  * that ordering is the whole of the fourth case. A platform that cannot reach its
@@ -99,27 +100,68 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
   );
 
   const supabase = await createServerClient();
-  // Both, not just `getUser`. The access token is only read for the session id it
-  // carries, which is what lets an officer be told which of their own sessions is
-  // the one they are using — see `sessionId` below. `getSession` reads the cookie
-  // this process already has rather than the network, so it costs nothing here.
-  const [{ data, error }, { data: sessionData }] = await Promise.all([
-    supabase.auth.getUser(),
-    supabase.auth.getSession(),
-  ]);
+
+  // The token first, then the claim it carries — in that order, and the order
+  // is the point rather than a detail.
+  //
+  // `getSession` reads the cookie this process already has rather than the
+  // network, so it is free, and it is what tells us whether there is a token at
+  // all. Returning here on its answer means an anonymous request costs one
+  // cookie read and no verification of any kind — which is every screen an
+  // unauthenticated visitor loads, including the sign-in form itself.
+  //
+  // Then `getClaims` rather than `getUser`, which is what this used to call.
+  // Supabase's own guidance is to prefer it: `getUser` "always sends a request
+  // to the Auth server for each JWT", whereas `getClaims` verifies the
+  // signature against the project's JSON Web Key Set, which is fetched once and
+  // cached, so the verification is local. It is not a decode — the signature is
+  // checked with WebCrypto and `exp` is still enforced, since `allowExpired` is
+  // never passed. This is the dominant remaining latency on a signed-in page
+  // load: it ran once for the Server Component's render and again for every
+  // batched client query, each one waiting on Supabase.
+  //
+  // It is never slower, which is what makes this safe to do without a flag. If
+  // the project signs with a symmetric secret (HS256) rather than an asymmetric
+  // key, `getClaims` cannot verify locally — it has no public key and this
+  // application deliberately does not hold the secret — so it falls back to
+  // asking Supabase, and the old behaviour is what happens anyway.
+  //
+  // What does change, and it is one thing: a *revoked* session. Revoking a
+  // refresh token is a fact only Supabase's database knows, and a locally
+  // verified signature cannot know it, so an access token that has been revoked
+  // keeps verifying until it expires. What that does and does not affect:
+  //
+  //  - Deactivating or deleting an *account* is unaffected, and still takes
+  //    effect on the very next request. That is enforced by the `isActive` check
+  //    against our own database below, not by anything Supabase says.
+  //  - Signing out is unaffected. `auth.logout` clears every session cookie on
+  //    the response, so the browser stops presenting the token at once.
+  //  - What is left is a token that has been copied out of the cookie jar and
+  //    replayed elsewhere, which would work until it expires rather than being
+  //    refused immediately. Narrowing that means shortening the access-token
+  //    lifetime in the Supabase project, which is an operator setting and not
+  //    something this process can decide.
+  const { data: sessionData, error: sessionError } =
+    await supabase.auth.getSession();
+
+  const accessToken = sessionData.session?.access_token;
+
+  if (sessionError || !accessToken) return null;
+
+  const authUserId = await resolveSubject(supabase, accessToken);
+
+  if (!authUserId) return null;
 
   // First, because everything below this line is a statement about somebody who
-  // presented a session, and "no session is not an error" is true whether or not
-  // the database is there.
-  if (error || !data.user) return null;
-
+  // presented a session, and "no session is not an error" is true whether or
+  // not the database is there.
   if (!(await getDb())) {
     throw new Error(
       "The platform cannot reach its database, so your account could not be checked. Nothing is wrong with your account — try again shortly, and tell the platform administrator if it continues."
     );
   }
 
-  const user = await getUserByAuthUserId(data.user.id);
+  const user = await getUserByAuthUserId(authUserId);
 
   if (!user) {
     // Accounts are provisioned by an administrator from the admin screen. A
@@ -162,9 +204,60 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
 
   return {
     ...user,
-    authUserId: data.user.id,
-    sessionId: sessionIdFromAccessToken(sessionData.session?.access_token),
+    authUserId,
+    sessionId: sessionIdFromAccessToken(accessToken),
   } as AuthenticatedUser;
+}
+
+/**
+ * The Supabase user id a token belongs to, or null if it names nobody.
+ *
+ * The distinction this exists for is between *"this token is not acceptable"*
+ * and *"we could not go and check"*, which look identical from outside and must
+ * not be treated the same way.
+ *
+ * `getClaims` verifies the signature locally against the project's key set, but
+ * the first time a process needs a key it has to fetch it — so a cold start, or
+ * any instance whose cached copy has expired, depends on that network call. A
+ * transient failure there is not a bad token, and treating it as one is the
+ * difference between a brief blip and the entire platform deciding that every
+ * officer is signed out at the same moment. So a retryable fetch failure falls
+ * back to asking Supabase, which is slower and always worked.
+ *
+ * Everything else is taken at face value. An expired token — the ordinary case,
+ * and the one a stale tab produces — is a genuine "not signed in yet" and is
+ * answered as one rather than as a hard error.
+ *
+ * Note that `getClaims` already falls back to `getUser` on its own when the
+ * project signs symmetrically or when WebCrypto is missing; this is the other
+ * direction, for the case where the fast path cannot run at all.
+ */
+async function resolveSubject(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  accessToken: string
+): Promise<string | null> {
+  const { data: claimData, error: claimError } =
+    await supabase.auth.getClaims(accessToken);
+
+  if (claimError || !claimData) {
+    // Not a verdict on the token — the answer could not be fetched. Ask Supabase
+    // instead, which is the slower question but can actually be reached.
+    if (claimError && isAuthRetryableFetchError(claimError)) {
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser(accessToken);
+      if (userError || !userData.user) return null;
+      return userData.user.id;
+    }
+
+    return null;
+  }
+
+  // `sub` is the Supabase user id, and it is the join between the two systems:
+  // the credential's own record and the row in our register. Nothing else in
+  // the token is used for identity.
+  const subject = claimData.claims.sub;
+
+  return typeof subject === "string" && subject ? subject : null;
 }
 
 /**
@@ -178,8 +271,9 @@ export async function authenticateSupabaseRequest(): Promise<AuthenticatedUser |
  * at, which is why an unreadable token yields null rather than a guess.
  *
  * The token's *signature* is not checked here and does not need to be: it was
- * verified by `getUser` a few lines above, and this only reads a claim out of
- * already-trusted bytes to name a session. Verifying it again would need
+ * verified a few lines above — against Supabase's JWKS, or against Supabase
+ * itself if this project signs symmetrically — and this only reads a claim out
+ * of already-trusted bytes to name a session. Verifying it again would need
  * `JWT_SECRET`, which this application deliberately does not hold.
  */
 function sessionIdFromAccessToken(
