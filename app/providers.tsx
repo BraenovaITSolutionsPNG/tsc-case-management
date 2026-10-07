@@ -9,6 +9,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { makeQueryClient } from "@shared/queryClient";
+import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import superjson from "superjson";
 
@@ -20,53 +21,15 @@ import superjson from "superjson";
  * is declared here and mounted by `app/layout.tsx`.
  */
 
-/**
- * Send an officer whose session has expired to the sign-in page.
- *
- * Nothing is signed anyone in here. The development login route that used to
- * be reached from this path signed the visitor in as the platform owner without
- * being asked, so a signed-out officer was quietly given a session instead of
- * being shown the form. The sign-in page is the one place credentials are
- * entered, and an expired session belongs there, carrying the path they were on
- * so they land back on it afterwards.
- */
-const redirectToLoginIfUnauthorized = (error: unknown) => {
-  if (!(error instanceof TRPCClientError)) return;
-  if (typeof window === "undefined") return;
-
-  const isUnauthorized = isUnauthenticatedError(error);
-
-  if (!isUnauthorized) return;
-
-  // Already on the sign-in page: reloading it would loop, and a 401 there is
-  // simply the expected answer to an auth probe.
-  if (window.location.pathname === "/login") return;
-
-  // Runs inside a react-query cache subscriber, so a throw here would escape
-  // into the cache rather than surface to the user.
-  //
-  // No `next`. An expired session used to carry the path it expired on, so the
-  // officer would be returned to it — which by then may be a closed matter, a
-  // reassigned one, or one they have lost the capability to open. `LANDING_PATH`
-  // is the overview, which every role can reach and which always answers the
-  // same question.
-  try {
-    window.location.assign("/login");
-  } catch (error) {
-    console.error("[Auth] Redirect to sign-in failed", error);
-  }
-};
-
-function makeClientQueryClient() {
+function makeClientQueryClient(
+  onUnauthorized: (error: unknown) => void
+) {
   const client = makeQueryClient();
 
-  // A session that expired mid-flight should send the officer back to the login
-  // screen rather than leaving a half-broken dashboard, so both query and
-  // mutation errors are watched for UNAUTHORIZED.
   client.getQueryCache().subscribe(event => {
     if (event.type === "updated" && event.action.type === "error") {
       const error = event.query.state.error;
-      redirectToLoginIfUnauthorized(error);
+      onUnauthorized(error);
       console.error("[API Query Error]", error);
     }
   });
@@ -74,7 +37,7 @@ function makeClientQueryClient() {
   client.getMutationCache().subscribe(event => {
     if (event.type === "updated" && event.action.type === "error") {
       const error = event.mutation.state.error;
-      redirectToLoginIfUnauthorized(error);
+      onUnauthorized(error);
       console.error("[API Mutation Error]", error);
     }
   });
@@ -106,10 +69,24 @@ function makeTrpcClient() {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
-  // Both are created per mount rather than as module-level singletons. Client
-  // components are rendered on the server too, and a shared cache or link
-  // chain would leak one visitor's data into another's server render.
-  const [queryClient] = useState(makeClientQueryClient);
+  const router = useRouter();
+
+  const redirectToLoginIfUnauthorized = (error: unknown) => {
+    if (!(error instanceof TRPCClientError)) return;
+    if (typeof window === "undefined") return;
+
+    const isUnauthorized = isUnauthenticatedError(error);
+
+    if (!isUnauthorized) return;
+
+    if (window.location.pathname === "/login") return;
+
+    router.replace("/login");
+  };
+
+  const [queryClient] = useState(() =>
+    makeClientQueryClient(redirectToLoginIfUnauthorized)
+  );
   const [trpcClient] = useState(makeTrpcClient);
 
   return (
