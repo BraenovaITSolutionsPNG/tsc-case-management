@@ -216,7 +216,7 @@ function Illustration() {
     <div
       aria-hidden
       className="pointer-events-none absolute inset-y-0 right-0 hidden w-[54%] lg:block"
-    >
+      >
       <Image
         src={officeIllustration}
         alt=""
@@ -235,10 +235,7 @@ function Illustration() {
         // optimiser pick a small candidate for a 54%-wide, viewport-tall slot.
         // The classes below carry the positioning that `fill` used to, so the
         // rendered box is byte-for-byte what it was.
-        width={1408}
-        height={768}
         sizes="54vw"
-        priority
         // The fade is on the picture, not a panel laid over it: masking the
         // image dissolves its left edge into the page, where covering it would
         // simply hide the quarter of the artwork the fade was meant to reveal.
