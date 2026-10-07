@@ -76,12 +76,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/tsc-logo.png", type: "image/png" },
     ],
     apple: [
-      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/tsc-logo.png", type: "image/png" },
     ],
-    shortcut: ["/icon.svg"],
+    shortcut: ["/tsc-logo.png"],
   },
   manifest: "/manifest.json",
 };
