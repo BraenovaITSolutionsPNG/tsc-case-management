@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "predeploy": [
+      "cd firebase-functions && npm run build"
+    ],
+    "source": "firebase-functions/src"
+  }
+}

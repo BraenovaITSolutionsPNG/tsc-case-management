@@ -1,0 +1,20 @@
+{
+  "name": "firebase-functions",
+  "version": "1.0.0",
+  "description": "Cloud functions for real-time case management sync",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo \"JavaScript functions ready\"",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "keywords": ["firebase", "realtime", "case-management"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@types/node": "^26.6.4",
+    "firebase-admin": "^14.5.0",
+    "firebase-functions": "^7.4.0"
+  }
+}
