@@ -9,9 +9,9 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "/tsc-logo.png",
+      "src": "/app-logo.webp",
       "sizes": "any",
-      "type": "image/png",
+      "type": "image/webp",
       "purpose": "any maskable"
     }
   ],

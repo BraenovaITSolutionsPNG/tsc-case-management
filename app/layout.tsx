@@ -76,12 +76,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/tsc-logo.png", type: "image/png" },
+      { url: "/app-logo.webp", type: "image/webp" },
     ],
     apple: [
-      { url: "/tsc-logo.png", type: "image/png" },
+      { url: "/app-logo.webp", type: "image/webp" },
     ],
-    shortcut: ["/tsc-logo.png"],
+    shortcut: ["/app-logo.webp"],
   },
   manifest: "/manifest.json",
 };
