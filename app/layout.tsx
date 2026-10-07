@@ -24,15 +24,76 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "TSC Case Management",
+  title: {
+    default: "TSC Case Management",
+    template: "%s | TSC Case Management",
+  },
   description:
-    "Provincial matters administration for the Papua New Guinea Teachers Service Commission.",
+    "Provincial matters administration platform for the Papua New Guinea Teachers Service Commission. Manage case registers, referrals, escalations, reporting, and director briefings in one secure government system.",
+  keywords: [
+    "TSC",
+    "Teachers Service Commission",
+    "Papua New Guinea",
+    "case management",
+    "provincial matters",
+    "education",
+    "matter register",
+    "government",
+    "public service",
+    "case register",
+    "referrals",
+    "director brief",
+    "provincial administration",
+    "PNG",
+  ],
+  authors: [
+    { name: "Teachers Service Commission" },
+    { name: "Provincial Matters Office" },
+  ],
+  creator: "Teachers Service Commission",
+  publisher: "Teachers Service Commission",
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  category: "Government Administration",
+  classification: "Official Government System",
+  openGraph: {
+    type: "website",
+    locale: "en_PG",
+    url: "/",
+    title: "TSC Case Management",
+    description:
+      "Provincial matters administration platform for the Papua New Guinea Teachers Service Commission. Manage case registers, referrals, escalations, reporting, and director briefings.",
+    siteName: "TSC Case Management",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TSC Case Management",
+    description:
+      "Provincial matters administration for the Papua New Guinea Teachers Service Commission.",
+  },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    apple: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: ["/icon.svg"],
+  },
+  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+  ],
 };
 
 /**

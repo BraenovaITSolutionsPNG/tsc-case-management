@@ -23,6 +23,20 @@ const nextConfig: NextConfig = {
   // the standalone/serverless bundles drop them.
   outputFileTracingRoot: import.meta.dirname,
 
+  // Standalone output creates a minimal server bundle that contains only the
+  // files needed to run the application. This is the enterprise standard for
+  // containerised deployments: the image carries the server, the static files
+  // and the node_modules they actually use, and nothing else.
+  output: "standalone",
+
+  // Remove the X-Powered-By header so the platform does not advertise its
+  // framework to scanners and curious visitors.
+  poweredByHeader: false,
+
+  // Gzip and Brotli compression for HTML, CSS and JS. Next.js generates both
+  // variants at build time and serves the one the browser accepts.
+  compress: true,
+
   // No `eslint` key. Next 16 removed support for it and warns on every build
   // that it is present, which is the worst kind of warning: it trains you to
   // ignore the output of the build. It was only ever here to skip linting, and

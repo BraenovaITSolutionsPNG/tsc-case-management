@@ -1,0 +1,21 @@
+{
+  "name": "TSC Case Management",
+  "short_name": "TSC Matters",
+  "description": "Provincial matters administration for the Papua New Guinea Teachers Service Commission.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1E3A8A",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["government", "productivity"],
+  "lang": "en",
+  "dir": "ltr"
+}
