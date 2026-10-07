@@ -26,7 +26,7 @@ import { LANDING_PATH } from "@shared/landing";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * The sign-in screen.
@@ -271,6 +271,11 @@ function LoginForm() {
   // sequence, so the gate stays gone.
   const refusal = trpc.auth.refusal.useQuery().data;
 
+  // Track whether the submit handler has already initiated navigation.
+  // This prevents the useEffect below from causing a redundant navigation
+  // after the submit handler has already called router.push().
+  const navigatedRef = useRef(false);
+
   // An already-signed-in officer arriving here is sent on, to the overview.
   //
   // This is a *fallback*. The `/login` segment resolves the session on the
@@ -282,7 +287,9 @@ function LoginForm() {
   // client redirect rather than a server one only because the segment has
   // already rendered by the time it would matter.
   useEffect(() => {
-    if (isAuthenticated) router.replace(LANDING_PATH);
+    if (isAuthenticated && !navigatedRef.current) {
+      router.replace(LANDING_PATH);
+    }
   }, [isAuthenticated, router]);
 
   const [email, setEmail] = useState("");
@@ -395,6 +402,7 @@ function LoginForm() {
       // this screen unmounts because the overview has committed. The form stays
       // on screen throughout, which is worth more than the takeover was — they
       // can still see the address they signed in with.
+      navigatedRef.current = true;
       setAwaitingPlatform(true);
       router.push(LANDING_PATH);
     } catch (error) {
@@ -437,7 +445,7 @@ function LoginForm() {
   // nothing fetched and nothing waited on. What is left of this branch is the
   // rare officer who signs in on a second tab while this page is open, and for
   // them the loader still covers the redirect.
-  if (isAuthenticated) {
+  if (isAuthenticated && !navigatedRef.current) {
     return <PageLoader label="Checking your session" />;
   }
 
